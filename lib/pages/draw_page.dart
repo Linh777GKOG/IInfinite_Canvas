@@ -17,7 +17,7 @@ import '../widgets/drawing_sidebar.dart';
 import '../widgets/drawing_layers_sidebar.dart';
 import 'gallery_page.dart';
 
-enum ActiveTool { brush, eraser, hand }
+
 
 class DrawPage extends StatefulWidget {
   final String drawingId;
@@ -30,28 +30,25 @@ class DrawPage extends StatefulWidget {
 class _DrawPageState extends State<DrawPage> {
   final GlobalKey _globalKey = GlobalKey();
 
-  // KÍCH THƯỚC CANVAS
+  // --- KÍCH THƯỚC CANVAS ---
   final double canvasWidth = 50000.0;
   final double canvasHeight = 50000.0;
 
-  // 🔥 DATA QUẢN LÝ THEO LAYERS
+  // --- DỮ LIỆU ---
   List<DrawingLayer> layers = [];
   int activeLayerIndex = 0;
-
-  // 🔥 TÊN FILE (Mặc định)
   String currentName = "Untitled Drawing";
 
-  // Undo/Redo & Image
   final List<Stroke> redoStack = [];
   final List<ImportedImage> images = [];
   Stroke? currentStroke;
 
-  // CONFIG
+  // --- CẤU HÌNH ---
   final double gridSize = 50.0;
-  final Color gridColor = Colors.black.withOpacity(0.05); // Lưới nhạt cho nền trắng
+  final Color gridColor = Colors.black.withOpacity(0.05);
   Color canvasColor = Colors.white;
 
-  // STATE
+  // --- TRẠNG THÁI ---
   List<Offset> currentPoints = [];
   Color currentColor = const Color(0xFF32C5FF);
   double currentWidth = 10;
@@ -63,7 +60,7 @@ class _DrawPageState extends State<DrawPage> {
   bool isSaving = false;
   bool isInitialLoading = true;
 
-  // 🔥 MULTITOUCH STATE
+  // --- MULTITOUCH & GESTURE ---
   int _pointerCount = 0;
   int _maxPointerCount = 0;
   bool _isMultitouching = false;
@@ -74,7 +71,6 @@ class _DrawPageState extends State<DrawPage> {
   @override
   void initState() {
     super.initState();
-    // Ẩn thanh trạng thái để Full màn hình (Immersive Mode)
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
     controller.addListener(() {
@@ -97,7 +93,6 @@ class _DrawPageState extends State<DrawPage> {
     _loadData();
   }
 
-  // KHỞI TẠO LAYER MẶC ĐỊNH
   void _initLayers() {
     if (layers.isEmpty) {
       layers.add(DrawingLayer(id: 'layer_1', strokes: []));
@@ -105,28 +100,33 @@ class _DrawPageState extends State<DrawPage> {
     }
   }
 
+  // 🔥 LOAD DỮ LIỆU
   Future<void> _loadData() async {
-    // Load tên file từ Storage
-    final name = await StorageHelper.getDrawingName(widget.drawingId);
+    try {
+      final name = await StorageHelper.getDrawingName(widget.drawingId);
+      final savedStrokes = await StorageHelper.loadDrawing(widget.drawingId);
 
-    // Load nét vẽ (logic cũ tạm ẩn, bạn tự mở lại nếu cần)
-    // final savedStrokes = await StorageHelper.loadDrawing(widget.drawingId);
-
-    if (mounted) {
-      setState(() {
-        currentName = name; // 🔥 CẬP NHẬT TÊN VÀO UI
-        // ...
-        isInitialLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          currentName = name;
+          if (savedStrokes.isNotEmpty) {
+            layers[0].strokes = savedStrokes;
+          }
+          isInitialLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Lỗi load data: $e");
+      if (mounted) setState(() => isInitialLoading = false);
     }
   }
 
-  // --- CÁC HÀM QUẢN LÝ LAYER ---
+  // --- QUẢN LÝ LAYER ---
   void _addNewLayer() {
     setState(() {
       String newId = 'layer_${layers.length + 1}';
       layers.add(DrawingLayer(id: newId, strokes: []));
-      activeLayerIndex = layers.length - 1; // Chọn layer mới nhất
+      activeLayerIndex = layers.length - 1;
     });
   }
 
@@ -147,10 +147,8 @@ class _DrawPageState extends State<DrawPage> {
       );
       return;
     }
-
     setState(() {
       layers.removeAt(index);
-      // Điều chỉnh lại activeIndex sau khi xóa
       if (activeLayerIndex >= layers.length) {
         activeLayerIndex = layers.length - 1;
       } else if (index < activeLayerIndex) {
@@ -159,7 +157,6 @@ class _DrawPageState extends State<DrawPage> {
     });
   }
 
-  // Lấy strokes từ các layer đang hiện để vẽ
   List<Stroke> get _visibleStrokes {
     return layers
         .where((layer) => layer.isVisible)
@@ -167,20 +164,18 @@ class _DrawPageState extends State<DrawPage> {
         .toList();
   }
 
-  // --- LOGIC CẢM ỨNG ĐA ĐIỂM (VẼ & GESTURE) ---
+  // --- LOGIC CẢM ỨNG ---
   void _onPointerDown(PointerDownEvent event) {
     _pointerCount++;
     if (_pointerCount > _maxPointerCount) _maxPointerCount = _pointerCount;
 
     if (_pointerCount > 1) {
-      // Đa điểm -> Chuyển sang chế độ Gesture
       setState(() {
         _isMultitouching = true;
         currentStroke = null;
         currentPoints = [];
       });
     } else {
-      // 1 ngón -> Reset cờ Zoom và bắt đầu vẽ
       _hasZoomed = false;
       _maxPointerCount = 1;
 
@@ -201,15 +196,14 @@ class _DrawPageState extends State<DrawPage> {
   void _onPointerUp(PointerUpEvent event) {
     _pointerCount--;
     if (_pointerCount == 0) {
-      // Xử lý Gesture khi thả hết tay
       if (_maxPointerCount == 2 && !_hasZoomed) {
-        undo(); // 2 ngón tap -> Undo
+        undo();
         _showToast("Undo");
       } else if (_maxPointerCount == 3 && !_hasZoomed) {
-        redo(); // 3 ngón tap -> Redo
+        redo();
         _showToast("Redo");
       } else {
-        endStroke(); // Kết thúc nét vẽ thường
+        endStroke();
       }
 
       setState(() {
@@ -230,7 +224,6 @@ class _DrawPageState extends State<DrawPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(milliseconds: 300)));
   }
 
-  // --- DRAWING CORE ---
   void startStroke(Offset p) {
     if (_isMultitouching || _pointerCount > 1) return;
     currentPoints = [p];
@@ -254,7 +247,6 @@ class _DrawPageState extends State<DrawPage> {
     });
   }
 
-  // Undo/Redo
   void undo() {
     final activeStrokes = layers[activeLayerIndex].strokes;
     if (activeStrokes.isNotEmpty) {
@@ -272,9 +264,7 @@ class _DrawPageState extends State<DrawPage> {
 
   void toggleTool() => setState(() => activeTool = (activeTool == ActiveTool.brush) ? ActiveTool.eraser : ActiveTool.brush);
 
-  // --- DIALOGS & UI HELPERS ---
-
-  // 🔥 Hộp thoại đổi tên
+  // --- HỘP THOẠI ĐỔI TÊN ---
   void _showRenameDialog() {
     TextEditingController nameController = TextEditingController(text: currentName);
     showDialog(
@@ -293,7 +283,7 @@ class _DrawPageState extends State<DrawPage> {
           ),
           onSubmitted: (value) {
             if (value.trim().isNotEmpty) {
-              setState(() => currentName = value.trim());
+              _performRename(value.trim());
               Navigator.pop(context);
             }
           },
@@ -303,7 +293,7 @@ class _DrawPageState extends State<DrawPage> {
           TextButton(
             onPressed: () {
               if (nameController.text.trim().isNotEmpty) {
-                setState(() => currentName = nameController.text.trim());
+                _performRename(nameController.text.trim());
                 Navigator.pop(context);
               }
             },
@@ -314,6 +304,12 @@ class _DrawPageState extends State<DrawPage> {
     );
   }
 
+  void _performRename(String newName) {
+    setState(() => currentName = newName);
+    StorageHelper.renameDrawing(widget.drawingId, newName);
+  }
+
+  // --- CÁC HÀM KHÁC ---
   void _openSettings() {
     DrawingSettingsModal.show(context, currentGridType: currentGridType, onGridTypeChanged: (type) => setState(() => currentGridType = type), onPickBgColor: _showBackgroundColorPicker);
   }
@@ -335,13 +331,95 @@ class _DrawPageState extends State<DrawPage> {
     );
   }
 
+  // 🔥 HÀM LƯU TRANH (Đã Fix lỗi Crash & Lặp code)
   Future<void> _saveDrawing() async {
-    // TODO: Implement save logic later
+    if (isSaving) return;
+    setState(() => isSaving = true);
+
+    try {
+      // 1. Tạo Thumbnail nhỏ (Fix crash)
+      Uint8List pngBytes = await _generateSmallThumbnail(_visibleStrokes);
+
+      // 2. Lưu dữ liệu
+      await StorageHelper.saveDrawing(
+          widget.drawingId,
+          _visibleStrokes,
+          pngBytes,
+          name: currentName
+      );
+
+    } catch (e) {
+      debugPrint("Lỗi lưu: $e");
+    } finally {
+      if (mounted) setState(() => isSaving = false);
+    }
   }
 
+  // 🔥 HÀM TẠO THUMBNAIL (Helper)
+  Future<Uint8List> _generateSmallThumbnail(List<Stroke> strokes) async {
+    if (strokes.isEmpty) return Uint8List(0);
+
+    // Tính vùng bao quanh nét vẽ
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+
+    for (var stroke in strokes) {
+      for (var p in stroke.points) {
+        if (p.dx < minX) minX = p.dx;
+        if (p.dy < minY) minY = p.dy;
+        if (p.dx > maxX) maxX = p.dx;
+        if (p.dy > maxY) maxY = p.dy;
+      }
+    }
+
+    minX -= 50; minY -= 50; maxX += 50; maxY += 50;
+    double w = maxX - minX;
+    double h = maxY - minY;
+    if (w <= 0 || h <= 0) return Uint8List(0);
+
+    const double thumbSize = 300.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, thumbSize, thumbSize));
+
+    canvas.drawRect(const Rect.fromLTWH(0, 0, thumbSize, thumbSize), Paint()..color = Colors.white);
+
+    double scale = thumbSize / (w > h ? w : h);
+    canvas.scale(scale);
+    canvas.translate(-minX, -minY);
+
+    final paint = Paint()
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+
+    for (var stroke in strokes) {
+      paint.color = stroke.color;
+      paint.strokeWidth = stroke.width;
+
+      if (stroke.points.length > 1) {
+        Path path = Path();
+        path.moveTo(stroke.points[0].dx, stroke.points[0].dy);
+        for (int i = 1; i < stroke.points.length; i++) {
+          path.lineTo(stroke.points[i].dx, stroke.points[i].dy);
+        }
+        canvas.drawPath(path, paint);
+      } else if (stroke.points.isNotEmpty) {
+        canvas.drawPoints(ui.PointMode.points, stroke.points, paint);
+      }
+    }
+
+    final picture = recorder.endRecording();
+    final img = await picture.toImage(thumbSize.toInt(), thumbSize.toInt());
+    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    return byteData!.buffer.asUint8List();
+  }
+
+  // 🔥 XỬ LÝ NÚT BACK
   Future<void> _handleBack() async {
     await _saveDrawing();
+
     if (!mounted) return;
+
     if (Navigator.canPop(context)) {
       Navigator.pop(context);
     } else {
@@ -359,7 +437,7 @@ class _DrawPageState extends State<DrawPage> {
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F5F7), // Nền xám nhạt (Concepts style)
+        backgroundColor: const Color(0xFFF5F5F7),
         body: Stack(
           children: [
             // 1. CANVAS
@@ -387,9 +465,7 @@ class _DrawPageState extends State<DrawPage> {
                       child: Stack(
                         children: [
                           Positioned.fill(child: Stack(children: [Container(key: ValueKey(canvasColor), color: canvasColor), RepaintBoundary(child: AnimatedBuilder(animation: controller, builder: (c, _) => CustomPaint(painter: GridPainter(gridSize: gridSize, gridColor: gridColor, controller: controller, gridType: currentGridType))))])),
-                          // Render Layers
                           Positioned.fill(child: RepaintBoundary(child: CustomPaint(isComplex: false, foregroundPainter: DrawPainter(_visibleStrokes, images)))),
-                          // Render Current Stroke
                           Positioned.fill(child: CustomPaint(foregroundPainter: DrawPainter(currentStroke == null ? [] : [currentStroke!], [], canvasColor: canvasColor, isPreview: true))),
                         ],
                       ),
@@ -407,7 +483,6 @@ class _DrawPageState extends State<DrawPage> {
                 onSave: _handleExport,
                 onSettingsSelect: _openSettings,
                 zoomLevel: "${(currentScale * 100).round()}%",
-                // 🔥 Params mới cho đổi tên
                 drawingName: currentName,
                 onRename: _showRenameDialog,
               ),
@@ -418,12 +493,29 @@ class _DrawPageState extends State<DrawPage> {
               left: 4, top: 100, bottom: 80,
               child: Center(
                 child: DrawingSidebar(
-                  currentWidth: currentWidth, currentOpacity: currentOpacity, currentColor: currentColor,
-                  onWidthChanged: (v) => setState(() => currentWidth = v), onOpacityChanged: (v) => setState(() => currentOpacity = v),
-                  onUndo: undo, onRedo: redo, onColorTap: _showColorPicker, isEraser: activeTool == ActiveTool.eraser, onToggleTool: toggleTool,
+                  currentWidth: currentWidth,
+                  currentOpacity: currentOpacity,
+                  currentColor: currentColor,
+                  onWidthChanged: (v) => setState(() => currentWidth = v),
+                  onOpacityChanged: (v) => setState(() => currentOpacity = v),
+                  onUndo: undo,
+                  onRedo: redo,
+                  onColorTap: _showColorPicker,
+
+                  // 🔥 CẬP NHẬT CÁC THAM SỐ MỚI Ở ĐÂY:
+                  activeTool: activeTool, // Truyền trạng thái hiện tại
+
+                  onSelectBrush: () {
+                    setState(() => activeTool = ActiveTool.brush);
+                  },
+
+                  onSelectEraser: () {
+                    setState(() => activeTool = ActiveTool.eraser);
+                  },
                 ),
               ),
             ),
+
 
             // 4. RIGHT SIDEBAR (LAYERS)
             Positioned(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/drawing_models.dart'; // Nhớ import file model
 
 class DrawingSidebar extends StatelessWidget {
   final double currentWidth;
@@ -9,8 +10,11 @@ class DrawingSidebar extends StatelessWidget {
   final VoidCallback onUndo;
   final VoidCallback onRedo;
   final VoidCallback onColorTap;
-  final bool isEraser;
-  final VoidCallback onToggleTool;
+
+  // 🔥 THAY ĐỔI: Nhận vào trạng thái công cụ và 2 hàm chọn riêng
+  final ActiveTool activeTool;
+  final VoidCallback onSelectBrush;
+  final VoidCallback onSelectEraser;
 
   const DrawingSidebar({
     super.key,
@@ -22,8 +26,9 @@ class DrawingSidebar extends StatelessWidget {
     required this.onUndo,
     required this.onRedo,
     required this.onColorTap,
-    required this.isEraser,
-    required this.onToggleTool,
+    required this.activeTool,      // Mới
+    required this.onSelectBrush,   // Mới
+    required this.onSelectEraser,  // Mới
   });
 
   @override
@@ -31,8 +36,8 @@ class DrawingSidebar extends StatelessWidget {
     final screenHeight = MediaQuery.of(context).size.height;
 
     return Container(
-      width: 48, // Tăng nhẹ bề ngang để thoáng hơn
-      constraints: BoxConstraints(maxHeight: screenHeight * 0.8),
+      width: 48,
+      constraints: BoxConstraints(maxHeight: screenHeight * 0.85),
       padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
           color: Colors.white,
@@ -45,11 +50,11 @@ class DrawingSidebar extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 1. MÀU SẮC (Có viền bao quanh)
+            // 1. MÀU SẮC
             GestureDetector(
               onTap: onColorTap,
               child: Container(
-                padding: const EdgeInsets.all(2), // Viền trắng
+                padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.grey.shade200, width: 1),
@@ -65,30 +70,29 @@ class DrawingSidebar extends StatelessWidget {
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            const Divider(indent: 10, endIndent: 10, height: 1),
+            const SizedBox(height: 12),
 
-            // 2. CÔNG CỤ (Có nền khi được chọn)
-            GestureDetector(
-              onTap: onToggleTool,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100, // Nền xám nhẹ làm background
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  isEraser ? Icons.cleaning_services_rounded : Icons.brush_rounded,
-                  color: Colors.black87,
-                  size: 20,
-                ),
-              ),
+            // 2. CÔNG CỤ: BÚT (BRUSH)
+            _buildToolBtn(
+                icon: Icons.brush_rounded,
+                isActive: activeTool == ActiveTool.brush,
+                onTap: onSelectBrush
+            ),
+
+            const SizedBox(height: 8),
+
+            // 3. CÔNG CỤ: TẨY (ERASER)
+            _buildToolBtn(
+                icon: Icons.cleaning_services_rounded, // Hoặc Icons.edit_off_rounded
+                isActive: activeTool == ActiveTool.eraser,
+                onTap: onSelectEraser
             ),
 
             const SizedBox(height: 16),
 
-            // 3. SLIDERS
-            // Size
+            // 4. SLIDERS
             const Text("Size", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black38)),
             SizedBox(
               height: 100,
@@ -100,7 +104,6 @@ class DrawingSidebar extends StatelessWidget {
 
             const SizedBox(height: 8),
 
-            // Opacity
             const Text("Opac", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black38)),
             SizedBox(
               height: 100,
@@ -110,19 +113,39 @@ class DrawingSidebar extends StatelessWidget {
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             const Divider(indent: 10, endIndent: 10, height: 1),
             const SizedBox(height: 12),
 
-            // 4. UNDO / REDO
-            Column(
-              children: [
-                _buildTinyBtn(Icons.undo_rounded, onUndo),
-                const SizedBox(height: 8),
-                _buildTinyBtn(Icons.redo_rounded, onRedo),
-              ],
-            )
+            // 5. UNDO / REDO
+            _buildTinyBtn(Icons.undo_rounded, onUndo),
+            const SizedBox(height: 8),
+            _buildTinyBtn(Icons.redo_rounded, onRedo),
           ],
+        ),
+      ),
+    );
+  }
+
+  // Widget nút công cụ (Tự động đổi màu khi Active)
+  Widget _buildToolBtn({required IconData icon, required bool isActive, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 36, height: 36,
+        decoration: BoxDecoration(
+          color: isActive ? Colors.black87 : Colors.white, // Đen nếu chọn, Trắng nếu không
+          shape: BoxShape.circle,
+          border: isActive ? null : Border.all(color: Colors.grey.shade200),
+          boxShadow: isActive
+              ? [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))]
+              : [],
+        ),
+        child: Icon(
+          icon,
+          color: isActive ? Colors.white : Colors.black54, // Icon trắng nếu chọn
+          size: 20,
         ),
       ),
     );
