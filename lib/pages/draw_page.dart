@@ -38,6 +38,9 @@ class _DrawPageState extends State<DrawPage> {
   List<DrawingLayer> layers = [];
   int activeLayerIndex = 0;
 
+  // 🔥 TÊN FILE (Mặc định)
+  String currentName = "Untitled Drawing";
+
   // Undo/Redo & Image
   final List<Stroke> redoStack = [];
   final List<ImportedImage> images = [];
@@ -45,8 +48,7 @@ class _DrawPageState extends State<DrawPage> {
 
   // CONFIG
   final double gridSize = 50.0;
-  // Màu lưới nhạt cho nền trắng
-  final Color gridColor = Colors.black.withOpacity(0.05);
+  final Color gridColor = Colors.black.withOpacity(0.05); // Lưới nhạt cho nền trắng
   Color canvasColor = Colors.white;
 
   // STATE
@@ -60,14 +62,21 @@ class _DrawPageState extends State<DrawPage> {
 
   bool isSaving = false;
   bool isInitialLoading = true;
+
+  // 🔥 MULTITOUCH STATE
   int _pointerCount = 0;
+  int _maxPointerCount = 0;
   bool _isMultitouching = false;
+  bool _hasZoomed = false;
 
   final TransformationController controller = TransformationController();
 
   @override
   void initState() {
     super.initState();
+    // Ẩn thanh trạng thái để Full màn hình (Immersive Mode)
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
     controller.addListener(() {
       final newScale = controller.value.getMaxScaleOnAxis();
       if ((newScale - currentScale).abs() > 0.01) {
@@ -84,7 +93,7 @@ class _DrawPageState extends State<DrawPage> {
       setState(() => currentScale = 1.0);
     });
 
-    _initLayers(); // Khởi tạo layer đầu tiên
+    _initLayers();
     _loadData();
   }
 
@@ -97,16 +106,27 @@ class _DrawPageState extends State<DrawPage> {
   }
 
   Future<void> _loadData() async {
-    // Logic load cũ tạm thời để trống để test Layer trước
-    setState(() => isInitialLoading = false);
+    // Load tên file từ Storage
+    final name = await StorageHelper.getDrawingName(widget.drawingId);
+
+    // Load nét vẽ (logic cũ tạm ẩn, bạn tự mở lại nếu cần)
+    // final savedStrokes = await StorageHelper.loadDrawing(widget.drawingId);
+
+    if (mounted) {
+      setState(() {
+        currentName = name; // 🔥 CẬP NHẬT TÊN VÀO UI
+        // ...
+        isInitialLoading = false;
+      });
+    }
   }
 
-  // CÁC HÀM QUẢN LÝ LAYER
+  // --- CÁC HÀM QUẢN LÝ LAYER ---
   void _addNewLayer() {
     setState(() {
       String newId = 'layer_${layers.length + 1}';
       layers.add(DrawingLayer(id: newId, strokes: []));
-      activeLayerIndex = layers.length - 1;
+      activeLayerIndex = layers.length - 1; // Chọn layer mới nhất
     });
   }
 
@@ -130,6 +150,7 @@ class _DrawPageState extends State<DrawPage> {
 
     setState(() {
       layers.removeAt(index);
+      // Điều chỉnh lại activeIndex sau khi xóa
       if (activeLayerIndex >= layers.length) {
         activeLayerIndex = layers.length - 1;
       } else if (index < activeLayerIndex) {
@@ -138,7 +159,7 @@ class _DrawPageState extends State<DrawPage> {
     });
   }
 
-  // Lấy strokes từ các layer đang hiện
+  // Lấy strokes từ các layer đang hiện để vẽ
   List<Stroke> get _visibleStrokes {
     return layers
         .where((layer) => layer.isVisible)
@@ -146,12 +167,23 @@ class _DrawPageState extends State<DrawPage> {
         .toList();
   }
 
-  // --- LOGIC VẼ ---
+  // --- LOGIC CẢM ỨNG ĐA ĐIỂM (VẼ & GESTURE) ---
   void _onPointerDown(PointerDownEvent event) {
     _pointerCount++;
+    if (_pointerCount > _maxPointerCount) _maxPointerCount = _pointerCount;
+
     if (_pointerCount > 1) {
-      setState(() { _isMultitouching = true; currentStroke = null; currentPoints = []; });
+      // Đa điểm -> Chuyển sang chế độ Gesture
+      setState(() {
+        _isMultitouching = true;
+        currentStroke = null;
+        currentPoints = [];
+      });
     } else {
+      // 1 ngón -> Reset cờ Zoom và bắt đầu vẽ
+      _hasZoomed = false;
+      _maxPointerCount = 1;
+
       if (layers[activeLayerIndex].isVisible) {
         startStroke(controller.toScene(event.localPosition));
       } else {
@@ -161,12 +193,31 @@ class _DrawPageState extends State<DrawPage> {
   }
 
   void _onPointerMove(PointerMoveEvent event) {
-    if (!_isMultitouching && _pointerCount == 1) addPoint(controller.toScene(event.localPosition));
+    if (!_isMultitouching && _pointerCount == 1) {
+      addPoint(controller.toScene(event.localPosition));
+    }
   }
 
   void _onPointerUp(PointerUpEvent event) {
     _pointerCount--;
-    if (_pointerCount == 0) { endStroke(); setState(() => _isMultitouching = false); }
+    if (_pointerCount == 0) {
+      // Xử lý Gesture khi thả hết tay
+      if (_maxPointerCount == 2 && !_hasZoomed) {
+        undo(); // 2 ngón tap -> Undo
+        _showToast("Undo");
+      } else if (_maxPointerCount == 3 && !_hasZoomed) {
+        redo(); // 3 ngón tap -> Redo
+        _showToast("Redo");
+      } else {
+        endStroke(); // Kết thúc nét vẽ thường
+      }
+
+      setState(() {
+        _isMultitouching = false;
+        _hasZoomed = false;
+        _maxPointerCount = 0;
+      });
+    }
   }
 
   void _onPointerCancel(PointerCancelEvent event) {
@@ -174,6 +225,12 @@ class _DrawPageState extends State<DrawPage> {
     setState(() { _isMultitouching = false; currentStroke = null; });
   }
 
+  void _showToast(String msg) {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(milliseconds: 300)));
+  }
+
+  // --- DRAWING CORE ---
   void startStroke(Offset p) {
     if (_isMultitouching || _pointerCount > 1) return;
     currentPoints = [p];
@@ -197,7 +254,7 @@ class _DrawPageState extends State<DrawPage> {
     });
   }
 
-  // Undo/Redo/Tools
+  // Undo/Redo
   void undo() {
     final activeStrokes = layers[activeLayerIndex].strokes;
     if (activeStrokes.isNotEmpty) {
@@ -215,7 +272,48 @@ class _DrawPageState extends State<DrawPage> {
 
   void toggleTool() => setState(() => activeTool = (activeTool == ActiveTool.brush) ? ActiveTool.eraser : ActiveTool.brush);
 
-  // Dialogs
+  // --- DIALOGS & UI HELPERS ---
+
+  // 🔥 Hộp thoại đổi tên
+  void _showRenameDialog() {
+    TextEditingController nameController = TextEditingController(text: currentName);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Rename Drawing", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: "Enter new name",
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          ),
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) {
+              setState(() => currentName = value.trim());
+              Navigator.pop(context);
+            }
+          },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
+          TextButton(
+            onPressed: () {
+              if (nameController.text.trim().isNotEmpty) {
+                setState(() => currentName = nameController.text.trim());
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("Rename", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openSettings() {
     DrawingSettingsModal.show(context, currentGridType: currentGridType, onGridTypeChanged: (type) => setState(() => currentGridType = type), onPickBgColor: _showBackgroundColorPicker);
   }
@@ -238,10 +336,9 @@ class _DrawPageState extends State<DrawPage> {
   }
 
   Future<void> _saveDrawing() async {
-    // TODO: Update logic save cho Layers sau
+    // TODO: Implement save logic later
   }
 
-  // Logic xử lý nút Back (Grid Icon)
   Future<void> _handleBack() async {
     await _saveDrawing();
     if (!mounted) return;
@@ -262,19 +359,27 @@ class _DrawPageState extends State<DrawPage> {
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F5F7),
+        backgroundColor: const Color(0xFFF5F5F7), // Nền xám nhạt (Concepts style)
         body: Stack(
           children: [
             // 1. CANVAS
             Positioned.fill(
               child: Listener(
-                onPointerDown: _onPointerDown, onPointerMove: _onPointerMove, onPointerUp: _onPointerUp, onPointerCancel: _onPointerCancel,
+                onPointerDown: _onPointerDown,
+                onPointerMove: _onPointerMove,
+                onPointerUp: _onPointerUp,
+                onPointerCancel: _onPointerCancel,
                 child: InteractiveViewer(
                   transformationController: controller,
                   boundaryMargin: const EdgeInsets.all(double.infinity),
                   minScale: 0.1, maxScale: 5.0, constrained: false,
                   panEnabled: false, scaleEnabled: true,
-                  onInteractionStart: (d) { if (d.pointerCount > 1) setState(() { _isMultitouching = true; currentStroke = null; }); },
+                  onInteractionUpdate: (details) {
+                    if (details.scale != 1.0) _hasZoomed = true;
+                  },
+                  onInteractionStart: (d) {
+                    if (d.pointerCount > 1) setState(() { _isMultitouching = true; currentStroke = null; });
+                  },
                   child: SizedBox(
                     width: canvasWidth, height: canvasHeight,
                     child: RepaintBoundary(
@@ -294,20 +399,23 @@ class _DrawPageState extends State<DrawPage> {
               ),
             ),
 
-            // 2. TOP BAR (Tích hợp Back Button vào Grid Icon)
+            // 2. TOP BAR
             Positioned(
               top: 0, left: 0, right: 0,
               child: DrawingToolbar(
-                onBack: _handleBack, // 🔥 GỌI HÀM THOÁT
+                onBack: _handleBack,
                 onSave: _handleExport,
                 onSettingsSelect: _openSettings,
                 zoomLevel: "${(currentScale * 100).round()}%",
+                // 🔥 Params mới cho đổi tên
+                drawingName: currentName,
+                onRename: _showRenameDialog,
               ),
             ),
 
             // 3. LEFT SIDEBAR
             Positioned(
-              left: 10, top: 100, bottom: 80,
+              left: 4, top: 100, bottom: 80,
               child: Center(
                 child: DrawingSidebar(
                   currentWidth: currentWidth, currentOpacity: currentOpacity, currentColor: currentColor,
@@ -317,20 +425,18 @@ class _DrawPageState extends State<DrawPage> {
               ),
             ),
 
-            // 4. RIGHT SIDEBAR (Layers - Có chức năng xóa)
+            // 4. RIGHT SIDEBAR (LAYERS)
             Positioned(
-              right: 10, top: 60,
+              right: 0, top: 60,
               child: DrawingLayersSidebar(
                 layers: layers,
                 activeLayerIndex: activeLayerIndex,
                 onNewLayer: _addNewLayer,
                 onSelectLayer: _selectLayer,
                 onToggleVisibility: _toggleLayerVisibility,
-                onDeleteLayer: _deleteLayer, // 🔥 Chức năng xóa layer
+                onDeleteLayer: _deleteLayer,
               ),
             ),
-
-            // ❌ ĐÃ XÓA NÚT MŨI TÊN BACK TRÔI NỔI
 
             if (isSaving || isInitialLoading)
               Container(color: Colors.black26, child: const Center(child: CircularProgressIndicator(color: Colors.black))),

@@ -28,86 +28,114 @@ class DrawingSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+
     return Container(
-      width: 44, // 🔥 Thu nhỏ chiều ngang (cũ là 50)
+      width: 48, // Tăng nhẹ bề ngang để thoáng hơn
+      constraints: BoxConstraints(maxHeight: screenHeight * 0.8),
       padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.95), // Hơi trong suốt 1 xíu
-          borderRadius: BorderRadius.circular(22), // Bo tròn mềm mại hơn
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 15, offset: const Offset(2, 4))
+            BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(4, 4))
           ]
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 1. Vòng tròn màu
-          GestureDetector(
-            onTap: onColorTap,
-            child: Container(
-              width: 32, height: 32,
-              decoration: BoxDecoration(
-                  color: currentColor,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 1. MÀU SẮC (Có viền bao quanh)
+            GestureDetector(
+              onTap: onColorTap,
+              child: Container(
+                padding: const EdgeInsets.all(2), // Viền trắng
+                decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.grey[200]!, width: 3), // Viền mỏng tinh tế
-                  boxShadow: [BoxShadow(color: currentColor.withOpacity(0.3), blurRadius: 4)]
+                  border: Border.all(color: Colors.grey.shade200, width: 1),
+                ),
+                child: Container(
+                  width: 28, height: 28,
+                  decoration: BoxDecoration(
+                    color: currentColor,
+                    shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: currentColor.withOpacity(0.4), blurRadius: 4)],
+                  ),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
 
-          // 2. Công cụ (Brush/Eraser)
-          GestureDetector(
-            onTap: onToggleTool,
-            child: Icon(
-              isEraser ? Icons.cleaning_services_outlined : Icons.brush_outlined, // Dùng icon mảnh (outlined)
-              color: Colors.black87,
-              size: 24,
+            const SizedBox(height: 16),
+
+            // 2. CÔNG CỤ (Có nền khi được chọn)
+            GestureDetector(
+              onTap: onToggleTool,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100, // Nền xám nhẹ làm background
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isEraser ? Icons.cleaning_services_rounded : Icons.brush_rounded,
+                  color: Colors.black87,
+                  size: 20,
+                ),
+              ),
             ),
-          ),
 
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8.0),
-            child: Divider(indent: 8, endIndent: 8, height: 1),
-          ),
+            const SizedBox(height: 16),
 
-          // 3. Slider Size (Rút ngắn chiều cao)
-          SizedBox(
-            height: 120, // 🔥 GIẢM TỪ 150 XUỐNG 120
-            child: RotatedBox(quarterTurns: 3, child: _ModernSlider(value: currentWidth, min: 1, max: 100, onChanged: onWidthChanged)),
-          ),
-          const Text("Size", style: TextStyle(fontSize: 8, fontWeight: FontWeight.w600, color: Colors.black45)),
+            // 3. SLIDERS
+            // Size
+            const Text("Size", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black38)),
+            SizedBox(
+              height: 100,
+              child: RotatedBox(
+                  quarterTurns: 3,
+                  child: _ModernSlider(value: currentWidth, min: 1, max: 100, onChanged: onWidthChanged)
+              ),
+            ),
 
-          const SizedBox(height: 8),
+            const SizedBox(height: 8),
 
-          // 4. Slider Opacity
-          SizedBox(
-            height: 120, // 🔥 GIẢM TỪ 150 XUỐNG 120
-            child: RotatedBox(quarterTurns: 3, child: _ModernSlider(value: currentOpacity, min: 0, max: 1, onChanged: onOpacityChanged)),
-          ),
-          const Text("Opac", style: TextStyle(fontSize: 8, fontWeight: FontWeight.w600, color: Colors.black45)),
+            // Opacity
+            const Text("Opac", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black38)),
+            SizedBox(
+              height: 100,
+              child: RotatedBox(
+                  quarterTurns: 3,
+                  child: _ModernSlider(value: currentOpacity, min: 0, max: 1, onChanged: onOpacityChanged)
+              ),
+            ),
 
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8.0),
-            child: Divider(indent: 8, endIndent: 8, height: 1),
-          ),
+            const SizedBox(height: 16),
+            const Divider(indent: 10, endIndent: 10, height: 1),
+            const SizedBox(height: 12),
 
-          // 5. Undo/Redo
-          _buildTinyBtn(Icons.undo_rounded, onUndo),
-          const SizedBox(height: 4),
-          _buildTinyBtn(Icons.redo_rounded, onRedo),
-        ],
+            // 4. UNDO / REDO
+            Column(
+              children: [
+                _buildTinyBtn(Icons.undo_rounded, onUndo),
+                const SizedBox(height: 8),
+                _buildTinyBtn(Icons.redo_rounded, onRedo),
+              ],
+            )
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildTinyBtn(IconData icon, VoidCallback onTap) {
-    return IconButton(
-      icon: Icon(icon, size: 20, color: Colors.black87),
-      onPressed: onTap,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-      splashRadius: 15,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(6.0),
+        child: Icon(icon, size: 20, color: Colors.black54),
+      ),
     );
   }
 }
@@ -122,11 +150,11 @@ class _ModernSlider extends StatelessWidget {
   Widget build(BuildContext context) {
     return SliderTheme(
       data: SliderThemeData(
-        trackHeight: 3,
+        trackHeight: 4,
         activeTrackColor: Colors.black87,
-        inactiveTrackColor: Colors.grey[200],
+        inactiveTrackColor: Colors.grey.shade200,
         thumbColor: Colors.black,
-        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5), // Nút kéo nhỏ lại
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6, elevation: 2),
         overlayShape: SliderComponentShape.noOverlay,
       ),
       child: Slider(value: value, min: min, max: max, onChanged: onChanged),

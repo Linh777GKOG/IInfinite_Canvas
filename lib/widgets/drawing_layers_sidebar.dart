@@ -7,7 +7,7 @@ class DrawingLayersSidebar extends StatefulWidget {
   final VoidCallback onNewLayer;
   final Function(int) onSelectLayer;
   final Function(int) onToggleVisibility;
-  final Function(int) onDeleteLayer; // 🔥 Hàm xóa layer
+  final Function(int) onDeleteLayer;
 
   const DrawingLayersSidebar({
     super.key,
@@ -24,12 +24,13 @@ class DrawingLayersSidebar extends StatefulWidget {
 }
 
 class _DrawingLayersSidebarState extends State<DrawingLayersSidebar> {
-  // Biến lưu vị trí layer đang chờ xóa (Hiện icon thùng rác)
   int? _layerPendingDeleteIndex;
+
+  // 🔥 BIẾN MỚI: Kiểm soát việc mở rộng hay thu gọn menu
+  bool _isExpanded = true;
 
   @override
   Widget build(BuildContext context) {
-    // Nếu bấm ra ngoài vùng layer thì hủy chế độ xóa
     return GestureDetector(
       onTap: () {
         if (_layerPendingDeleteIndex != null) {
@@ -38,42 +39,61 @@ class _DrawingLayersSidebarState extends State<DrawingLayersSidebar> {
       },
       child: Container(
         width: 120,
-        color: Colors.transparent, // Để bắt sự kiện tap ra ngoài
+        color: Colors.transparent,
         padding: const EdgeInsets.only(top: 0, right: 5, bottom: 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            IconButton(
-              onPressed: () {},
-              icon: const Icon(Icons.layers_outlined, color: Colors.black87, size: 28),
-              padding: EdgeInsets.zero,
-              alignment: Alignment.centerRight,
-              constraints: const BoxConstraints(),
-            ),
-            const SizedBox(height: 15),
-
-            _buildTextAction("Automatic ⇅", onTap: () {}),
-            const SizedBox(height: 12),
-            _buildTextAction("New Layer +", onTap: widget.onNewLayer),
-
-            const SizedBox(height: 20),
-
-            Flexible(
-              child: SingleChildScrollView(
-                reverse: true,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    for (int i = widget.layers.length - 1; i >= 0; i--)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _buildLayerItem(i),
-                      )
-                  ],
+            // 1. NÚT TOGGLE CHÍNH (ICON LAYERS)
+            GestureDetector(
+              // 🔥 Bấm vào đây để ẨN/HIỆN menu
+              onTap: () {
+                setState(() {
+                  _isExpanded = !_isExpanded;
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: _isExpanded ? BoxDecoration(
+                  color: Colors.black.withOpacity(0.05), // Highlight nhẹ khi đang mở
+                  shape: BoxShape.circle,
+                ) : null,
+                child: Icon(
+                    Icons.layers_outlined,
+                    color: _isExpanded ? Colors.black : Colors.black54,
+                    size: 28
                 ),
               ),
             ),
+
+            const SizedBox(height: 10),
+
+            // 🔥 CHỈ HIỆN PHẦN DƯỚI NẾU ĐANG MỞ (_isExpanded == true)
+            if (_isExpanded) ...[
+              _buildTextAction("Automatic ⇅", onTap: () {}),
+              const SizedBox(height: 12),
+              _buildTextAction("New Layer +", onTap: widget.onNewLayer),
+
+              const SizedBox(height: 20),
+
+              // Danh sách Layer
+              Flexible(
+                child: SingleChildScrollView(
+                  reverse: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      for (int i = widget.layers.length - 1; i >= 0; i--)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _buildLayerItem(i),
+                        )
+                    ],
+                  ),
+                ),
+              ),
+            ]
           ],
         ),
       ),
@@ -100,7 +120,6 @@ class _DrawingLayersSidebarState extends State<DrawingLayersSidebar> {
     final isPendingDelete = index == _layerPendingDeleteIndex;
 
     return GestureDetector(
-      // 1. Chạm thường: Chọn layer (hoặc hủy xóa nếu đang xóa layer khác)
       onTap: () {
         if (_layerPendingDeleteIndex != null) {
           setState(() => _layerPendingDeleteIndex = null);
@@ -108,7 +127,6 @@ class _DrawingLayersSidebarState extends State<DrawingLayersSidebar> {
           widget.onSelectLayer(index);
         }
       },
-      // 2. Chạm giữ: Kích hoạt chế độ xóa
       onLongPress: () {
         setState(() => _layerPendingDeleteIndex = index);
       },
@@ -116,7 +134,6 @@ class _DrawingLayersSidebarState extends State<DrawingLayersSidebar> {
         mainAxisAlignment: MainAxisAlignment.end,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Nút Con mắt (Chỉ hiện khi KHÔNG ở chế độ xóa)
           if (!isPendingDelete)
             InkWell(
               onTap: () => widget.onToggleVisibility(index),
@@ -130,30 +147,25 @@ class _DrawingLayersSidebarState extends State<DrawingLayersSidebar> {
               ),
             ),
 
-          // 🔥 NÚT THÙNG RÁC (Chỉ hiện khi Long Press)
           if (isPendingDelete)
             InkWell(
               onTap: () {
-                widget.onDeleteLayer(index); // Gọi hàm xóa thật
-                setState(() => _layerPendingDeleteIndex = null); // Reset trạng thái
+                widget.onDeleteLayer(index);
+                setState(() => _layerPendingDeleteIndex = null);
               },
               child: Container(
                 margin: const EdgeInsets.only(right: 8),
                 padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(
-                  color: Colors.red, // Màu đỏ cảnh báo
-                  shape: BoxShape.circle,
-                ),
+                decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
                 child: const Icon(Icons.delete_outline, size: 18, color: Colors.white),
               ),
             ),
 
-          // Khung Thumbnail
           Container(
             width: 50,
             height: 35,
             decoration: BoxDecoration(
-              color: isPendingDelete ? Colors.red.shade50 : Colors.white, // Đổi màu nền nhẹ khi chờ xóa
+              color: isPendingDelete ? Colors.red.shade50 : Colors.white,
               border: Border.all(
                 color: isPendingDelete
                     ? Colors.red

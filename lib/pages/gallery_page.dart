@@ -1,6 +1,8 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import '../models/drawing_models.dart';
 import '../utils/storage_helper.dart';
 import 'draw_page.dart';
 
@@ -12,128 +14,188 @@ class GalleryPage extends StatefulWidget {
 }
 
 class _GalleryPageState extends State<GalleryPage> {
-  List<Map<String, dynamic>> drawings = [];
+  List<DrawingInfo> drawings = [];
   bool isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadGallery();
+    // Hiện lại thanh trạng thái khi ra ngoài sảnh
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+    ));
+    _loadDrawings();
   }
 
-  // Load danh sách tranh
-  Future<void> _loadGallery() async {
-    setState(() => isLoading = true);
+  Future<void> _loadDrawings() async {
     final data = await StorageHelper.getAllDrawings();
-    setState(() {
-      drawings = data;
-      isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        drawings = data;
+        isLoading = false;
+      });
+    }
   }
 
-  // Mở trang vẽ
-  void _openCanvas({String? id}) async {
-    // Tạo ID mới nếu bấm nút Tạo, hoặc dùng ID cũ nếu bấm vào tranh
-    String drawingId = id ?? const Uuid().v4();
-
-    // Chuyển sang DrawPage
-    await Navigator.push(
+  void _createNewDrawing() {
+    final String newId = const Uuid().v4();
+    Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => DrawPage(drawingId: drawingId)),
-    );
+      MaterialPageRoute(builder: (context) => DrawPage(drawingId: newId)),
+    ).then((_) => _loadDrawings()); // Reload khi quay lại
+  }
 
-    // Khi quay về thì load lại danh sách để cập nhật ảnh thumbnail mới
-    _loadGallery();
+  void _openDrawing(String id) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => DrawPage(drawingId: id)),
+    ).then((_) => _loadDrawings()); // Reload khi quay lại
+  }
+
+  void _deleteDrawing(String id) async {
+    await StorageHelper.deleteDrawing(id);
+    _loadDrawings();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(
-        title: const Text("Gallery", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: false,
-      ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : drawings.isEmpty
-          ? Center(
+      backgroundColor: const Color(0xFFF5F5F7), // Nền xám Concepts
+      body: SafeArea(
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.brush_rounded, size: 80, color: Colors.grey[800]),
-            const SizedBox(height: 10),
-            Text("Chưa có tranh nào", style: TextStyle(color: Colors.grey[600])),
-            const SizedBox(height: 5),
-            Text("Bấm nút + để vẽ ngay", style: TextStyle(color: Colors.grey[800], fontSize: 12)),
-          ],
-        ),
-      )
-          : GridView.builder(
-        padding: const EdgeInsets.all(16),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: 0.8,
-        ),
-        itemCount: drawings.length,
-        itemBuilder: (context, index) {
-          final item = drawings[index];
-          final File thumbFile = File(item['thumbPath']);
-
-          return GestureDetector(
-            onTap: () => _openCanvas(id: item['id']),
-            child: Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF2C2C2E),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 6)],
-                border: Border.all(color: Colors.white10),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+            // 1. HEADER
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                      child: thumbFile.existsSync()
-                          ? Image.file(thumbFile, fit: BoxFit.cover)
-                          : Container(color: Colors.grey[800], child: const Icon(Icons.broken_image, color: Colors.white54)),
+                  const Text(
+                    "Drawings",
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                      letterSpacing: -1,
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.all(12.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Artwork #${index + 1}",
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          "${item['date'].day}/${item['date'].month} • ${item['date'].hour}:${item['date'].minute}",
-                          style: TextStyle(color: Colors.grey[500], fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ),
+                  IconButton(
+                    onPressed: (){}, // Nút cài đặt giả lập
+                    icon: const Icon(Icons.settings_outlined, color: Colors.black87, size: 28),
+                  )
                 ],
               ),
             ),
-          );
-        },
+
+            // 2. GRID DRAWINGS
+            Expanded(
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator(color: Colors.black))
+                  : drawings.isEmpty
+                  ? _buildEmptyState()
+                  : GridView.builder(
+                padding: const EdgeInsets.all(20),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2, // 2 cột
+                  crossAxisSpacing: 15,
+                  mainAxisSpacing: 15,
+                  childAspectRatio: 0.8, // Tỉ lệ khung hình
+                ),
+                itemCount: drawings.length,
+                itemBuilder: (context, index) {
+                  return _buildDrawingCard(drawings[index]);
+                },
+              ),
+            ),
+          ],
+        ),
       ),
 
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openCanvas(),
-        backgroundColor: const Color(0xFF32C5FF),
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text("Tạo Canvas", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      // 3. FLOATING ACTION BUTTON (NÚT +)
+      floatingActionButton: FloatingActionButton(
+        onPressed: _createNewDrawing,
+        backgroundColor: Colors.black,
+        elevation: 5,
+        child: const Icon(Icons.add, color: Colors.white, size: 30),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.brush_outlined, size: 60, color: Colors.grey[400]),
+          const SizedBox(height: 10),
+          Text("Start something new", style: TextStyle(color: Colors.grey[500], fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrawingCard(DrawingInfo info) {
+    return GestureDetector(
+      onTap: () => _openDrawing(info.id),
+      onLongPress: () {
+        // Hỏi xóa khi nhấn giữ
+        showDialog(context: context, builder: (ctx) => AlertDialog(
+          title: const Text("Delete Drawing?"),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+            TextButton(onPressed: () { Navigator.pop(ctx); _deleteDrawing(info.id); }, child: const Text("Delete", style: TextStyle(color: Colors.red))),
+          ],
+        ));
+      },
+      child: Container(
+        decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))
+            ]
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // THUMBNAIL
+            Expanded(
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                child: info.thumbnail != null
+                    ? Image.memory(info.thumbnail!, fit: BoxFit.cover)
+                    : Container(
+                  color: Colors.grey[100],
+                  child: Icon(Icons.image_not_supported, color: Colors.grey[300]),
+                ),
+              ),
+            ),
+
+            // INFO
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    info.name,
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    DateFormat('MMM d, yyyy').format(info.lastModified),
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ],
+              ),
+            )
+          ],
+        ),
       ),
     );
   }

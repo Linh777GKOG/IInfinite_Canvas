@@ -55,3 +55,16 @@ class DrawingLayer {
     this.isVisible = true,
   });
 }
+class DrawingInfo {
+  final String id;
+  String name;
+  final DateTime lastModified;
+  final Uint8List? thumbnail; // Ảnh thu nhỏ để xem trước
+
+  DrawingInfo({
+    required this.id,
+    required this.name,
+    required this.lastModified,
+    this.thumbnail,
+  });
+}
