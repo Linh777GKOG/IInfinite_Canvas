@@ -1,6 +1,6 @@
-import 'dart:ui' as ui;       // 🔥 Để dùng ui.Image
-import 'dart:typed_data';     // 🔥 Để dùng Uint8List (cho thumbnail)
-import 'package:flutter/material.dart'; // 🔥 Để dùng Color, Offset
+import 'dart:ui' as ui;       //  Để dùng ui.Image
+import 'dart:typed_data';     //  Để dùng Uint8List (cho thumbnail)
+import 'package:flutter/material.dart'; //  Để dùng Color, Offset
 enum ActiveTool { brush, eraser, hand }
 // 1. CLASS NÉT VẼ
 class Stroke {
