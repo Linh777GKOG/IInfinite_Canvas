@@ -5,9 +5,8 @@ import 'pages/gallery_page.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 🔥 BƯỚC QUAN TRỌNG:
-  // Xóa đoạn code khóa màn hình cũ đi.
-  // Thay bằng đoạn này để cho phép xoay mọi hướng:
+
+  // cho phép xoay mọi hướng:
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,

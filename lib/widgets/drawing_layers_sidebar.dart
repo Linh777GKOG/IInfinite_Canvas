@@ -26,7 +26,7 @@ class DrawingLayersSidebar extends StatefulWidget {
 class _DrawingLayersSidebarState extends State<DrawingLayersSidebar> {
   int? _layerPendingDeleteIndex;
 
-  // 🔥 BIẾN MỚI: Kiểm soát việc mở rộng hay thu gọn menu
+  // BIẾN MỚI: Kiểm soát việc mở rộng hay thu gọn menu
   bool _isExpanded = true;
 
   @override
@@ -47,7 +47,7 @@ class _DrawingLayersSidebarState extends State<DrawingLayersSidebar> {
           children: [
             // 1. NÚT TOGGLE CHÍNH (ICON LAYERS)
             GestureDetector(
-              // 🔥 Bấm vào đây để ẨN/HIỆN menu
+              // Bấm vào đây để ẨN/HIỆN menu
               onTap: () {
                 setState(() {
                   _isExpanded = !_isExpanded;
@@ -69,7 +69,7 @@ class _DrawingLayersSidebarState extends State<DrawingLayersSidebar> {
 
             const SizedBox(height: 10),
 
-            // 🔥 CHỈ HIỆN PHẦN DƯỚI NẾU ĐANG MỞ (_isExpanded == true)
+            // CHỈ HIỆN PHẦN DƯỚI NẾU ĐANG MỞ (_isExpanded == true)
             if (_isExpanded) ...[
               _buildTextAction("Automatic ⇅", onTap: () {}),
               const SizedBox(height: 12),

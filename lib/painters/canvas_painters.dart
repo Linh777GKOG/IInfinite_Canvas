@@ -9,8 +9,8 @@ enum GridType { lines, dots, none }
 class DrawPainter extends CustomPainter {
   final List<Stroke> strokes;
   final List<ImportedImage> images;
-  final Color? canvasColor; // 🔥 THÊM: Màu nền để giả lập tẩy
-  final bool isPreview;     // 🔥 THÊM: Cờ báo hiệu đang vẽ nháp hay vẽ thật
+  final Color? canvasColor; // Màu nền để giả lập tẩy
+  final bool isPreview;     // Cờ báo hiệu đang vẽ nháp hay vẽ thật
 
   DrawPainter(
       this.strokes,
@@ -48,12 +48,12 @@ class DrawPainter extends CustomPainter {
 
       if (stroke.isEraser) {
         if (isPreview && canvasColor != null) {
-          // 🔥 TRƯỜNG HỢP PREVIEW (ĐANG KÉO):
+          // TRƯỜNG HỢP PREVIEW (ĐANG KÉO):
           // Vẽ màu nền đè lên để che nét cũ -> Tạo cảm giác đang tẩy
           paint.color = canvasColor!;
           paint.blendMode = BlendMode.srcOver;
         } else {
-          // 🔥 TRƯỜNG HỢP VẼ THẬT (ĐÃ THẢ TAY):
+          // TRƯỜNG HỢP VẼ THẬT (ĐÃ THẢ TAY):
           // Đục thủng lớp vẽ để lộ nền bên dưới
           paint.color = Colors.transparent;
           paint.blendMode = BlendMode.clear;
@@ -125,7 +125,7 @@ class GridPainter extends CustomPainter {
     final Matrix4 matrix = controller.value;
     final double scale = matrix.getMaxScaleOnAxis();
 
-    // 🔥 SỬA LỖI TẠI ĐÂY: Chuyển Vector3 thành Offset
+    // Chuyển Vector3 thành Offset
     final translationVector = matrix.getTranslation();
     final Offset translation = Offset(translationVector.x, translationVector.y);
 

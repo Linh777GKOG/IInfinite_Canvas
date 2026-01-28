@@ -11,7 +11,7 @@ class DrawingSidebar extends StatelessWidget {
   final VoidCallback onRedo;
   final VoidCallback onColorTap;
 
-  // 🔥 THAY ĐỔI: Nhận vào trạng thái công cụ và 2 hàm chọn riêng
+  //  Nhận vào trạng thái công cụ và 2 hàm chọn riêng
   final ActiveTool activeTool;
   final VoidCallback onSelectBrush;
   final VoidCallback onSelectEraser;

@@ -100,7 +100,7 @@ class _DrawPageState extends State<DrawPage> {
     }
   }
 
-  // 🔥 LOAD DỮ LIỆU
+  //  LOAD DỮ LIỆU
   Future<void> _loadData() async {
     try {
       final name = await StorageHelper.getDrawingName(widget.drawingId);
@@ -331,7 +331,7 @@ class _DrawPageState extends State<DrawPage> {
     );
   }
 
-  // 🔥 HÀM LƯU TRANH (Đã Fix lỗi Crash & Lặp code)
+  // HÀM LƯU TRANH
   Future<void> _saveDrawing() async {
     if (isSaving) return;
     setState(() => isSaving = true);
@@ -355,7 +355,7 @@ class _DrawPageState extends State<DrawPage> {
     }
   }
 
-  // 🔥 HÀM TẠO THUMBNAIL (Helper)
+  //  HÀM TẠO THUMBNAIL (Helper)
   Future<Uint8List> _generateSmallThumbnail(List<Stroke> strokes) async {
     if (strokes.isEmpty) return Uint8List(0);
 
@@ -414,7 +414,7 @@ class _DrawPageState extends State<DrawPage> {
     return byteData!.buffer.asUint8List();
   }
 
-  // 🔥 XỬ LÝ NÚT BACK
+  // XỬ LÝ NÚT BACK
   Future<void> _handleBack() async {
     await _saveDrawing();
 
@@ -502,7 +502,7 @@ class _DrawPageState extends State<DrawPage> {
                   onRedo: redo,
                   onColorTap: _showColorPicker,
 
-                  // 🔥 CẬP NHẬT CÁC THAM SỐ MỚI Ở ĐÂY:
+                  // CẬP NHẬT CÁC THAM SỐ MỚI Ở ĐÂY:
                   activeTool: activeTool, // Truyền trạng thái hiện tại
 
                   onSelectBrush: () {

@@ -19,7 +19,7 @@ class ExportHelper {
     // 1. Kiểm tra
     if (completedStrokes.isEmpty && currentStroke == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Tranh trắng tinh, hãy vẽ gì đó trước nhé!")));
+          const SnackBar(content: Text("Tranh trắng tinh, hãy vẽ gì đó ")));
       return;
     }
 

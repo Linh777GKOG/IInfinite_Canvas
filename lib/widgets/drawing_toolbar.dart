@@ -4,8 +4,8 @@ class DrawingToolbar extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onSave;
   final VoidCallback onSettingsSelect;
-  final VoidCallback onRename; // 🔥 THÊM: Hàm gọi khi bấm vào tên
-  final String drawingName;    // 🔥 THÊM: Tên file hiện tại
+  final VoidCallback onRename; //  Hàm gọi khi bấm vào tên
+  final String drawingName;    // Tên file hiện tại
   final String zoomLevel;
 
   const DrawingToolbar({
@@ -13,8 +13,8 @@ class DrawingToolbar extends StatelessWidget {
     required this.onBack,
     required this.onSave,
     required this.onSettingsSelect,
-    required this.onRename,    // Nhớ yêu cầu tham số này
-    required this.drawingName, // Nhớ yêu cầu tham số này
+    required this.onRename,
+    required this.drawingName,
     required this.zoomLevel,
   });
 
@@ -36,14 +36,14 @@ class DrawingToolbar extends StatelessWidget {
                 Container(width: 1, height: 20, color: Colors.black12),
                 const SizedBox(width: 8),
 
-                // 🔥 SỬA ĐOẠN NÀY: Text bấm được
+                //  Text bấm được
                 InkWell(
                   onTap: onRename, // Bấm vào để đổi tên
                   borderRadius: BorderRadius.circular(4),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
                     child: SizedBox(
-                      width: 120, // Tăng nhẹ chiều rộng để hiển thị tên dài
+                      width: 120,
                       child: Row(
                         children: [
                           Expanded(
@@ -68,7 +68,7 @@ class DrawingToolbar extends StatelessWidget {
               ],
             ),
 
-            // --- CỤM PHẢI (Giữ nguyên) ---
+            // --- CỤM PHẢI  ---
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
