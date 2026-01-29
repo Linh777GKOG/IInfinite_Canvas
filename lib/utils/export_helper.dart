@@ -1,10 +1,11 @@
 import 'dart:ui' as ui;
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:gal/gal.dart';
 import '../models/drawing_models.dart';
 import '../painters/canvas_painters.dart';
+import 'png_saver.dart';
 
 class ExportHelper {
   /// Hàm xử lý toàn bộ logic xuất ảnh
@@ -14,10 +15,14 @@ class ExportHelper {
     required Stroke? currentStroke,
     required Color canvasColor,
     required List<ImportedImage> images,
+    required List<CanvasText> texts,
     required Function(bool) onLoadingChanged, // Callback để bật tắt loading
   }) async {
     // 1. Kiểm tra
-    if (completedStrokes.isEmpty && currentStroke == null) {
+    if (completedStrokes.isEmpty &&
+        currentStroke == null &&
+        images.isEmpty &&
+        texts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Tranh trắng tinh, hãy vẽ gì đó ")));
       return;
@@ -68,7 +73,65 @@ class ExportHelper {
         }
       }
 
-      minX -= 50; minY -= 50; maxX += 50; maxY += 50;
+      // Include imported images
+      for (final img in images) {
+        final w = img.image.width * img.scale;
+        final h = img.image.height * img.scale;
+        final left = img.position.dx;
+        final top = img.position.dy;
+        final right = left + w;
+        final bottom = top + h;
+        if (left < minX) minX = left;
+        if (top < minY) minY = top;
+        if (right > maxX) maxX = right;
+        if (bottom > maxY) maxY = bottom;
+      }
+
+      // Include text elements
+      for (final t in texts) {
+        if (t.text.trim().isEmpty) continue;
+        final tp = TextPainter(
+          text: TextSpan(
+            text: t.text,
+            style: TextStyle(
+              color: t.color,
+              fontSize: t.fontSize,
+              fontWeight: t.fontWeight,
+              fontFamily: t.fontFamily,
+              fontStyle: t.italic ? FontStyle.italic : FontStyle.normal,
+              decoration:
+                  t.underline ? TextDecoration.underline : TextDecoration.none,
+            ),
+          ),
+          textAlign: t.align,
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: t.maxWidth ?? double.infinity);
+
+        final extraPad = t.backgroundColor == null ? 0.0 : t.padding * 2;
+        final w = (tp.width + extraPad) * t.scale;
+        final h = (tp.height + extraPad) * t.scale;
+        final left = t.position.dx;
+        final top = t.position.dy;
+        final right = left + w;
+        final bottom = top + h;
+        if (left < minX) minX = left;
+        if (top < minY) minY = top;
+        if (right > maxX) maxX = right;
+        if (bottom > maxY) maxY = bottom;
+      }
+
+      // If nothing updated (still infinities), fall back to default
+      if (minX == double.infinity || minY == double.infinity) {
+        minX = 0;
+        minY = 0;
+        maxX = 1080;
+        maxY = 1920;
+      }
+
+      minX -= 50;
+      minY -= 50;
+      maxX += 50;
+      maxY += 50;
       double width = maxX - minX;
       double height = maxY - minY;
 
@@ -101,7 +164,7 @@ class ExportHelper {
       canvas.scale(scaleFactor);
       canvas.translate(-minX, -minY);
 
-      final painter = DrawPainter(allStrokes, images);
+      final painter = DrawPainter(allStrokes, images, texts: texts);
       painter.paint(canvas, Size(width, height));
 
       final picture = recorder.endRecording();
@@ -109,19 +172,26 @@ class ExportHelper {
       final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
       final pngBytes = byteData!.buffer.asUint8List();
 
-      // Lưu vào máy
-      await Gal.putImageBytes(pngBytes);
+        // Save / download depending on platform
+        final fileName =
+          'infinite_canvas_${DateTime.now().millisecondsSinceEpoch}.png';
+        await PngSaver.savePngBytes(pngBytes, fileName: fileName);
 
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("✅ Đã lưu ảnh thành công!"),
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(kIsWeb
+                ? "✅ Đã tải ảnh xuống (Downloads)."
+                : "✅ Đã lưu ảnh thành công!"),
             backgroundColor: Colors.green));
       }
     } catch (e) {
       debugPrint("Lỗi lưu: $e");
       if (context.mounted) {
+        final message = e is UnsupportedError
+            ? "Thiết bị này chưa hỗ trợ lưu vào Thư viện. Hãy chạy trên Android/iOS (hoặc chạy bản Web để tải file)."
+            : "Lỗi: $e";
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Lỗi: $e"), backgroundColor: Colors.red));
+            SnackBar(content: Text(message), backgroundColor: Colors.red));
       }
     } finally {
       // Tắt Loading

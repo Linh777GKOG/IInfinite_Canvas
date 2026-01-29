@@ -15,6 +15,8 @@ class DrawingSidebar extends StatelessWidget {
   final ActiveTool activeTool;
   final VoidCallback onSelectBrush;
   final VoidCallback onSelectEraser;
+  final VoidCallback onSelectHand;
+  final VoidCallback onSelectText;
 
   const DrawingSidebar({
     super.key,
@@ -29,6 +31,8 @@ class DrawingSidebar extends StatelessWidget {
     required this.activeTool,      // Mới
     required this.onSelectBrush,   // Mới
     required this.onSelectEraser,  // Mới
+    required this.onSelectHand,
+    required this.onSelectText,
   });
 
   @override
@@ -90,9 +94,27 @@ class DrawingSidebar extends StatelessWidget {
                 onTap: onSelectEraser
             ),
 
+            const SizedBox(height: 8),
+
+            // 4. CÔNG CỤ: CHỌN / DI CHUYỂN (HAND)
+            _buildToolBtn(
+              icon: Icons.pan_tool_alt_rounded,
+              isActive: activeTool == ActiveTool.hand,
+              onTap: onSelectHand
+            ),
+
+            const SizedBox(height: 8),
+
+            // 5. CÔNG CỤ: TEXT
+            _buildToolBtn(
+              icon: Icons.text_fields_rounded,
+              isActive: activeTool == ActiveTool.text,
+              onTap: onSelectText
+            ),
+
             const SizedBox(height: 16),
 
-            // 4. SLIDERS
+            // 6. SLIDERS
             const Text("Size", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black38)),
             SizedBox(
               height: 100,
@@ -117,7 +139,7 @@ class DrawingSidebar extends StatelessWidget {
             const Divider(indent: 10, endIndent: 10, height: 1),
             const SizedBox(height: 12),
 
-            // 5. UNDO / REDO
+            // 7. UNDO / REDO
             _buildTinyBtn(Icons.undo_rounded, onUndo),
             const SizedBox(height: 8),
             _buildTinyBtn(Icons.redo_rounded, onRedo),

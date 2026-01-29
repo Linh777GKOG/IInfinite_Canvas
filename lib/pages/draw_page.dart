@@ -1,23 +1,95 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
 
 import '../models/drawing_models.dart';
 import '../painters/canvas_painters.dart';
 import '../utils/export_helper.dart';
 import '../utils/storage_helper.dart';
+import '../utils/image_loader.dart';
 import '../widgets/drawing_settings_modal.dart';
 import '../widgets/procreate_color_picker.dart';
 import '../widgets/drawing_toolbar.dart';
 import '../widgets/drawing_sidebar.dart';
 import '../widgets/drawing_layers_sidebar.dart';
 import 'gallery_page.dart';
+
+
+enum _TransformHandle { none, scale, rotate }
+
+class _SelectionHandles {
+  final Offset center;
+  final double rotation;
+  final double width;
+  final double height;
+  final double handleRadius;
+  final double rotateRadius;
+  final double rotateGap;
+
+  const _SelectionHandles({
+    required this.center,
+    required this.rotation,
+    required this.width,
+    required this.height,
+    required this.handleRadius,
+    required this.rotateRadius,
+    required this.rotateGap,
+  });
+
+  factory _SelectionHandles.fromBox({
+    required Offset center,
+    required double width,
+    required double height,
+    required double rotation,
+    required double handleRadius,
+    required double rotateRadius,
+    required double rotateGap,
+  }) {
+    return _SelectionHandles(
+      center: center,
+      width: width,
+      height: height,
+      rotation: rotation,
+      handleRadius: handleRadius,
+      rotateRadius: rotateRadius,
+      rotateGap: rotateGap,
+    );
+  }
+
+  _TransformHandle hitTest(Offset scenePos) {
+    final halfW = width / 2;
+    final halfH = height / 2;
+
+    final corners = <Offset>[
+      Offset(-halfW, -halfH),
+      Offset(halfW, -halfH),
+      Offset(halfW, halfH),
+      Offset(-halfW, halfH),
+    ].map((p) => center + _rotateOffset(p, rotation)).toList();
+
+    final rotHandle = center + _rotateOffset(Offset(0, -halfH - rotateGap), rotation);
+
+    for (final c in corners) {
+      if ((scenePos - c).distance <= handleRadius) return _TransformHandle.scale;
+    }
+    if ((scenePos - rotHandle).distance <= rotateRadius) return _TransformHandle.rotate;
+    return _TransformHandle.none;
+  }
+
+  static Offset _rotateOffset(Offset p, double radians) {
+    final c = math.cos(radians);
+    final s = math.sin(radians);
+    return Offset(p.dx * c - p.dy * s, p.dx * s + p.dy * c);
+  }
+}
+
+
 
 class DrawPage extends StatefulWidget {
   final String drawingId;
@@ -29,6 +101,7 @@ class DrawPage extends StatefulWidget {
 
 class _DrawPageState extends State<DrawPage> {
   final GlobalKey _globalKey = GlobalKey();
+  final Uuid _uuid = const Uuid();
 
   // --- KÍCH THƯỚC CANVAS ---
   final double canvasWidth = 50000.0;
@@ -40,12 +113,27 @@ class _DrawPageState extends State<DrawPage> {
   String currentName = "Untitled Drawing";
 
   final List<Stroke> redoStack = [];
+  final List<ImportedImage> images = [];
+  final List<CanvasText> texts = [];
   Stroke? currentStroke;
+
+  int? _selectedImageIndex;
+  int? _selectedTextIndex;
+  bool _isDraggingElement = false;
+  Offset? _dragPointerStart;
+  Offset? _dragElementStart;
+
+  _TransformHandle _activeHandle = _TransformHandle.none;
+  double? _transformRotationStart;
+  double? _transformScaleStart;
+  Offset? _transformElementCenter;
+  double? _transformStartAngle;
+  double? _transformStartDistance;
 
   // --- CẤU HÌNH ---
   final double gridSize = 50.0;
   final Color gridColor = Colors.black.withOpacity(0.05);
-  Color canvasColor = Colors.white; // Màu nền mặc định
+  Color canvasColor = Colors.white;
 
   // --- TRẠNG THÁI ---
   List<Offset> currentPoints = [];
@@ -94,22 +182,54 @@ class _DrawPageState extends State<DrawPage> {
 
   void _initLayers() {
     if (layers.isEmpty) {
-      layers.add(DrawingLayer(id: 'layer_1', strokes: [], images: []));
+      layers.add(DrawingLayer(id: 'layer_1', strokes: []));
       activeLayerIndex = 0;
     }
   }
 
+  //  LOAD DỮ LIỆU
   Future<void> _loadData() async {
     try {
       final name = await StorageHelper.getDrawingName(widget.drawingId);
-      final savedStrokes = await StorageHelper.loadDrawing(widget.drawingId);
+      final doc = await StorageHelper.loadDocument(widget.drawingId);
 
       if (mounted) {
+        final strokes = doc?.strokes ?? <Stroke>[];
+
+        final loadedTexts = doc?.texts ?? <CanvasText>[];
+
+        final loadedImages = <ImportedImage>[];
+        if (doc != null) {
+          for (final persisted in doc.images) {
+            final bytes = persisted.bytes;
+            if (bytes == null || bytes.isEmpty) continue;
+            try {
+              final uiImage = await ImageLoader.decodeToUiImage(bytes);
+              loadedImages.add(
+                ImportedImage(
+                  id: persisted.id,
+                  image: uiImage,
+                  bytes: bytes,
+                  position: persisted.position,
+                  scale: persisted.scale,
+                  rotation: persisted.rotation,
+                ),
+              );
+            } catch (_) {
+              // skip broken image
+            }
+          }
+        }
+
         setState(() {
           currentName = name;
-          if (savedStrokes.isNotEmpty) {
-            layers[0].strokes = savedStrokes;
-          }
+          layers[0].strokes = strokes;
+          images
+            ..clear()
+            ..addAll(loadedImages);
+          texts
+            ..clear()
+            ..addAll(loadedTexts);
           isInitialLoading = false;
         });
       }
@@ -119,51 +239,11 @@ class _DrawPageState extends State<DrawPage> {
     }
   }
 
-  // --- XỬ LÝ ẢNH ---
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    try {
-      final XFile? pickedFile = await picker.pickImage(source: ImageSource.gallery);
-
-      if (pickedFile != null) {
-        setState(() => isSaving = true);
-
-        final Uint8List bytes = await File(pickedFile.path).readAsBytes();
-        final ui.Codec codec = await ui.instantiateImageCodec(bytes);
-        final ui.FrameInfo frameInfo = await codec.getNextFrame();
-        final ui.Image img = frameInfo.image;
-
-        final Matrix4 transform = controller.value;
-        final double scale = transform.getMaxScaleOnAxis();
-        final Size screenSize = MediaQuery.of(context).size;
-        final double centerX = (-transform.getTranslation().x + screenSize.width / 2) / scale;
-        final double centerY = (-transform.getTranslation().y + screenSize.height / 2) / scale;
-
-        double imgScale = 1.0;
-        if (img.width > 500) imgScale = 500 / img.width;
-
-        final importedImg = ImportedImage(
-          image: img,
-          position: Offset(centerX - (img.width * imgScale)/2, centerY - (img.height * imgScale)/2),
-          scale: imgScale,
-        );
-
-        setState(() {
-          layers[activeLayerIndex].images.add(importedImg);
-          isSaving = false;
-        });
-      }
-    } catch (e) {
-      debugPrint("Lỗi pick ảnh: $e");
-      setState(() => isSaving = false);
-    }
-  }
-
   // --- QUẢN LÝ LAYER ---
   void _addNewLayer() {
     setState(() {
       String newId = 'layer_${layers.length + 1}';
-      layers.add(DrawingLayer(id: newId, strokes: [], images: []));
+      layers.add(DrawingLayer(id: newId, strokes: []));
       activeLayerIndex = layers.length - 1;
     });
   }
@@ -180,7 +260,9 @@ class _DrawPageState extends State<DrawPage> {
 
   void _deleteLayer(int index) {
     if (layers.length <= 1) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Không thể xóa layer cuối cùng!")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Không thể xóa layer cuối cùng!")),
+      );
       return;
     }
     setState(() {
@@ -194,11 +276,10 @@ class _DrawPageState extends State<DrawPage> {
   }
 
   List<Stroke> get _visibleStrokes {
-    return layers.where((layer) => layer.isVisible).expand((layer) => layer.strokes).toList();
-  }
-
-  List<ImportedImage> get _visibleImages {
-    return layers.where((layer) => layer.isVisible).expand((layer) => layer.images).toList();
+    return layers
+        .where((layer) => layer.isVisible)
+        .expand((layer) => layer.strokes)
+        .toList();
   }
 
   // --- LOGIC CẢM ỨNG ---
@@ -207,13 +288,82 @@ class _DrawPageState extends State<DrawPage> {
     if (_pointerCount > _maxPointerCount) _maxPointerCount = _pointerCount;
 
     if (_pointerCount > 1) {
-      setState(() { _isMultitouching = true; currentStroke = null; currentPoints = []; });
+      setState(() {
+        _isMultitouching = true;
+        currentStroke = null;
+        currentPoints = [];
+      });
     } else {
       _hasZoomed = false;
       _maxPointerCount = 1;
 
+      final scenePos = controller.toScene(event.localPosition);
+
+      // Nếu đang ở chế độ chọn/ảnh/text -> ưu tiên chọn & kéo thả
+      if (activeTool == ActiveTool.hand || activeTool == ActiveTool.text) {
+        // Hand tool: ưu tiên handle transform nếu đang có selection
+        if (activeTool == ActiveTool.hand && (_selectedImageIndex != null || _selectedTextIndex != null)) {
+          final handles = _currentSelectionHandles();
+          if (handles != null) {
+            final handle = handles.hitTest(scenePos);
+            if (handle != _TransformHandle.none) {
+              _beginHandleTransform(handle: handle, pointerScene: scenePos);
+              return;
+            }
+          }
+        }
+
+        final hitText = _hitTestText(scenePos);
+        if (hitText != null) {
+          setState(() {
+            _selectedTextIndex = hitText;
+            _selectedImageIndex = null;
+          });
+
+          if (activeTool == ActiveTool.hand) {
+            _beginDrag(scenePos, texts[hitText].position);
+          } else {
+            // Text tool: tap vào text để sửa
+            Future.microtask(() => _promptAddOrEditText(existingIndex: hitText));
+          }
+          return;
+        }
+
+        final hitImage = _hitTestImage(scenePos);
+        if (hitImage != null) {
+          setState(() {
+            _selectedImageIndex = hitImage;
+            _selectedTextIndex = null;
+          });
+          _beginDrag(scenePos, images[hitImage].position);
+          return;
+        }
+
+        // Text tool: tap chỗ trống để thêm text
+        if (activeTool == ActiveTool.text) {
+          setState(() {
+            _selectedImageIndex = null;
+            _selectedTextIndex = null;
+          });
+          Future.microtask(() => _promptAddOrEditText(position: scenePos));
+          return;
+        }
+
+        // Hand tool: tap chỗ trống -> bỏ chọn
+        setState(() {
+          _selectedImageIndex = null;
+          _selectedTextIndex = null;
+        });
+        return;
+      }
+
+      // Brush / Eraser
+      setState(() {
+        _selectedImageIndex = null;
+        _selectedTextIndex = null;
+      });
       if (layers[activeLayerIndex].isVisible) {
-        startStroke(controller.toScene(event.localPosition));
+        startStroke(scenePos);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Không thể vẽ lên Layer đang ẩn!"), duration: Duration(milliseconds: 500)));
       }
@@ -221,30 +371,799 @@ class _DrawPageState extends State<DrawPage> {
   }
 
   void _onPointerMove(PointerMoveEvent event) {
-    if (!_isMultitouching && _pointerCount == 1) {
-      addPoint(controller.toScene(event.localPosition));
+    final scenePos = controller.toScene(event.localPosition);
+
+    if (_activeHandle != _TransformHandle.none && !_isMultitouching && _pointerCount == 1) {
+      _updateHandleTransform(pointerScene: scenePos);
+      return;
+    }
+
+    if (_isDraggingElement && !_isMultitouching && _pointerCount == 1) {
+      _updateDrag(scenePos);
+      return;
+    }
+
+    if (!_isMultitouching && _pointerCount == 1 && (activeTool == ActiveTool.brush || activeTool == ActiveTool.eraser)) {
+      addPoint(scenePos);
     }
   }
 
   void _onPointerUp(PointerUpEvent event) {
     _pointerCount--;
     if (_pointerCount == 0) {
-      if (_maxPointerCount == 2 && !_hasZoomed) {
-        undo();
-        _showToast("Undo");
-      } else if (_maxPointerCount == 3 && !_hasZoomed) {
-        redo();
-        _showToast("Redo");
-      } else {
-        endStroke();
+      if (_activeHandle != _TransformHandle.none) {
+        _endHandleTransform();
+      } else if (_isDraggingElement) {
+        _endDrag();
+      } else if (activeTool == ActiveTool.brush || activeTool == ActiveTool.eraser) {
+        if (_maxPointerCount == 2 && !_hasZoomed) {
+          undo();
+          _showToast("Undo");
+        } else if (_maxPointerCount == 3 && !_hasZoomed) {
+          redo();
+          _showToast("Redo");
+        } else {
+          endStroke();
+        }
       }
-      setState(() { _isMultitouching = false; _hasZoomed = false; _maxPointerCount = 0; });
+
+      setState(() {
+        _isMultitouching = false;
+        _hasZoomed = false;
+        _maxPointerCount = 0;
+      });
     }
   }
 
   void _onPointerCancel(PointerCancelEvent event) {
     _pointerCount = 0;
-    setState(() { _isMultitouching = false; currentStroke = null; });
+    setState(() {
+      _isMultitouching = false;
+      currentStroke = null;
+      _endHandleTransform();
+      _endDrag();
+    });
+  }
+
+  void _beginHandleTransform({required _TransformHandle handle, required Offset pointerScene}) {
+    final selectedImageIndex = _selectedImageIndex;
+    final selectedTextIndex = _selectedTextIndex;
+    if (selectedImageIndex == null && selectedTextIndex == null) return;
+
+    final handles = _currentSelectionHandles();
+    if (handles == null) return;
+
+    setState(() {
+      _activeHandle = handle;
+      _transformElementCenter = handles.center;
+    });
+
+    if (handle == _TransformHandle.rotate) {
+      final center = handles.center;
+      _transformStartAngle = math.atan2(pointerScene.dy - center.dy, pointerScene.dx - center.dx);
+      if (selectedImageIndex != null) {
+        _transformRotationStart = images[selectedImageIndex].rotation;
+      } else if (selectedTextIndex != null) {
+        _transformRotationStart = texts[selectedTextIndex].rotation;
+      }
+      return;
+    }
+
+    if (handle == _TransformHandle.scale) {
+      final center = handles.center;
+      final dist = (pointerScene - center).distance;
+      _transformStartDistance = dist <= 0.001 ? 0.001 : dist;
+      if (selectedImageIndex != null) {
+        _transformScaleStart = images[selectedImageIndex].scale;
+      } else if (selectedTextIndex != null) {
+        _transformScaleStart = texts[selectedTextIndex].scale;
+      }
+    }
+  }
+
+  void _updateHandleTransform({required Offset pointerScene}) {
+    final handle = _activeHandle;
+    final center = _transformElementCenter;
+    if (handle == _TransformHandle.none || center == null) return;
+
+    final selectedImageIndex = _selectedImageIndex;
+    final selectedTextIndex = _selectedTextIndex;
+
+    if (handle == _TransformHandle.rotate) {
+      final startAngle = _transformStartAngle;
+      final startRotation = _transformRotationStart;
+      if (startAngle == null || startRotation == null) return;
+
+      final currentAngle = math.atan2(pointerScene.dy - center.dy, pointerScene.dx - center.dx);
+      final delta = currentAngle - startAngle;
+      final newRotation = startRotation + delta;
+
+      if (selectedImageIndex != null) {
+        images[selectedImageIndex].rotation = newRotation;
+        setState(() {});
+      } else if (selectedTextIndex != null) {
+        texts[selectedTextIndex].rotation = newRotation;
+        setState(() {});
+      }
+      return;
+    }
+
+    if (handle == _TransformHandle.scale) {
+      final startDist = _transformStartDistance;
+      final startScale = _transformScaleStart;
+      if (startDist == null || startScale == null) return;
+      final currentDist = (pointerScene - center).distance;
+      final factor = currentDist / startDist;
+      var newScale = startScale * factor;
+      newScale = newScale.clamp(0.05, 50.0);
+
+      if (selectedImageIndex != null) {
+        final img = images[selectedImageIndex];
+        img.scale = newScale;
+        final w = img.image.width * img.scale;
+        final h = img.image.height * img.scale;
+        img.position = center - Offset(w / 2, h / 2);
+        setState(() {});
+      } else if (selectedTextIndex != null) {
+        final t = texts[selectedTextIndex];
+        t.scale = newScale;
+        final tp = _layoutTextPainter(t);
+        final extraPad = t.backgroundColor == null ? 0.0 : t.padding * 2;
+        final baseW = tp.width + extraPad;
+        final baseH = tp.height + extraPad;
+        final w = baseW * t.scale;
+        final h = baseH * t.scale;
+        t.position = center - Offset(w / 2, h / 2);
+        setState(() {});
+      }
+    }
+  }
+
+  void _endHandleTransform() {
+    _activeHandle = _TransformHandle.none;
+    _transformRotationStart = null;
+    _transformScaleStart = null;
+    _transformElementCenter = null;
+    _transformStartAngle = null;
+    _transformStartDistance = null;
+  }
+
+  void _beginDrag(Offset pointerScene, Offset elementPos) {
+    setState(() {
+      _isDraggingElement = true;
+      _dragPointerStart = pointerScene;
+      _dragElementStart = elementPos;
+    });
+  }
+
+  void _updateDrag(Offset pointerScene) {
+    final startPointer = _dragPointerStart;
+    final startElement = _dragElementStart;
+    if (startPointer == null || startElement == null) return;
+    final delta = pointerScene - startPointer;
+
+    if (_selectedImageIndex != null) {
+      images[_selectedImageIndex!].position = startElement + delta;
+      setState(() {});
+      return;
+    }
+    if (_selectedTextIndex != null) {
+      texts[_selectedTextIndex!].position = startElement + delta;
+      setState(() {});
+    }
+  }
+
+  void _endDrag() {
+    _isDraggingElement = false;
+    _dragPointerStart = null;
+    _dragElementStart = null;
+  }
+
+  static bool _pointInRotatedRect({
+    required Offset point,
+    required Offset center,
+    required double width,
+    required double height,
+    required double rotation,
+  }) {
+    final p = point - center;
+    final c = math.cos(-rotation);
+    final s = math.sin(-rotation);
+    final local = Offset(p.dx * c - p.dy * s, p.dx * s + p.dy * c);
+    return local.dx.abs() <= width / 2 && local.dy.abs() <= height / 2;
+  }
+
+  TextPainter _layoutTextPainter(CanvasText t) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: t.text,
+        style: TextStyle(
+          color: t.color,
+          fontSize: t.fontSize,
+          fontWeight: t.fontWeight,
+          fontFamily: t.fontFamily,
+          fontStyle: t.italic ? FontStyle.italic : FontStyle.normal,
+          decoration: t.underline ? TextDecoration.underline : TextDecoration.none,
+        ),
+      ),
+      textAlign: t.align,
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: t.maxWidth ?? double.infinity);
+    return tp;
+  }
+
+  _SelectionHandles? _currentSelectionHandles() {
+    const baseHandleRadiusPx = 10.0;
+    const baseRotateRadiusPx = 10.0;
+    const baseRotateGapPx = 28.0;
+
+    final handleRadius = baseHandleRadiusPx / currentScale;
+    final rotateRadius = baseRotateRadiusPx / currentScale;
+    final rotateGap = baseRotateGapPx / currentScale;
+
+    if (_selectedImageIndex != null) {
+      final img = images[_selectedImageIndex!];
+      final w = img.image.width * img.scale;
+      final h = img.image.height * img.scale;
+      final center = img.position + Offset(w / 2, h / 2);
+      return _SelectionHandles.fromBox(
+        center: center,
+        width: w,
+        height: h,
+        rotation: img.rotation,
+        handleRadius: handleRadius,
+        rotateRadius: rotateRadius,
+        rotateGap: rotateGap,
+      );
+    }
+    if (_selectedTextIndex != null) {
+      final t = texts[_selectedTextIndex!];
+      if (t.text.trim().isEmpty) return null;
+      final tp = _layoutTextPainter(t);
+      final extraPad = t.backgroundColor == null ? 0.0 : t.padding * 2;
+      final baseW = tp.width + extraPad;
+      final baseH = tp.height + extraPad;
+      final w = baseW * t.scale;
+      final h = baseH * t.scale;
+      final center = t.position + Offset(w / 2, h / 2);
+      return _SelectionHandles.fromBox(
+        center: center,
+        width: w,
+        height: h,
+        rotation: t.rotation,
+        handleRadius: handleRadius,
+        rotateRadius: rotateRadius,
+        rotateGap: rotateGap,
+      );
+    }
+    return null;
+  }
+
+  int? _hitTestImage(Offset scenePos) {
+    for (int i = images.length - 1; i >= 0; i--) {
+      final img = images[i];
+      final w = img.image.width * img.scale;
+      final h = img.image.height * img.scale;
+      final center = img.position + Offset(w / 2, h / 2);
+      final hit = _pointInRotatedRect(
+        point: scenePos,
+        center: center,
+        width: w,
+        height: h,
+        rotation: img.rotation,
+      );
+      if (hit) return i;
+    }
+    return null;
+  }
+
+  int? _hitTestText(Offset scenePos) {
+    for (int i = texts.length - 1; i >= 0; i--) {
+      final t = texts[i];
+      if (t.text.trim().isEmpty) continue;
+      final tp = _layoutTextPainter(t);
+      final extraPad = t.backgroundColor == null ? 0.0 : t.padding * 2;
+      final baseW = tp.width + extraPad;
+      final baseH = tp.height + extraPad;
+      final w = baseW * t.scale;
+      final h = baseH * t.scale;
+      final center = t.position + Offset(w / 2, h / 2);
+      final hit = _pointInRotatedRect(
+        point: scenePos,
+        center: center,
+        width: w,
+        height: h,
+        rotation: t.rotation,
+      );
+      if (hit) return i;
+    }
+    return null;
+  }
+
+  Future<void> _pickAndInsertImage() async {
+    final picked = await ImageLoader.pickImage();
+    if (picked == null) return;
+
+    final size = MediaQuery.of(context).size;
+    final centerScene = controller.toScene(Offset(size.width / 2, size.height / 2));
+
+    final maxDim = (picked.image.width > picked.image.height)
+        ? picked.image.width.toDouble()
+        : picked.image.height.toDouble();
+    const targetMax = 900.0;
+    final scale = maxDim > targetMax ? targetMax / maxDim : 1.0;
+    final w = picked.image.width * scale;
+    final h = picked.image.height * scale;
+
+    final newImg = ImportedImage(
+      id: _uuid.v4(),
+      image: picked.image,
+      bytes: picked.bytes,
+      position: Offset(centerScene.dx - w / 2, centerScene.dy - h / 2),
+      scale: scale,
+    );
+
+    setState(() {
+      images.add(newImg);
+      _selectedImageIndex = images.length - 1;
+      _selectedTextIndex = null;
+      activeTool = ActiveTool.hand;
+    });
+  }
+
+  Future<void> _promptAddOrEditText({Offset? position, int? existingIndex}) async {
+    final isEdit = existingIndex != null;
+
+    final initial = isEdit
+        ? texts[existingIndex!]
+        : CanvasText(
+            id: _uuid.v4(),
+            text: '',
+            position: position ?? const Offset(0, 0),
+            color: currentColor,
+            fontSize: 36,
+          );
+
+    final controllerText = TextEditingController(text: initial.text);
+    double fontSize = initial.fontSize;
+    Color color = initial.color;
+
+    FontWeight fontWeight = initial.fontWeight;
+    String? fontFamily = initial.fontFamily;
+    bool italic = initial.italic;
+    bool underline = initial.underline;
+    TextAlign align = initial.align;
+
+    bool bgEnabled = initial.backgroundColor != null;
+    Color bgColor = initial.backgroundColor ?? Colors.black.withOpacity(0.08);
+    double padding = initial.padding;
+
+    bool wrapEnabled = (initial.maxWidth != null);
+    double wrapWidth = (initial.maxWidth ?? 400).clamp(120, 1200);
+
+    final fontFamilies = const <String?>[
+      null,
+      'Roboto',
+      'Arial',
+      'Times New Roman',
+      'Georgia',
+      'Courier New',
+    ];
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) => AlertDialog(
+            title: Text(isEdit ? 'Sửa văn bản' : 'Thêm văn bản'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: controllerText,
+                    autofocus: true,
+                    minLines: 2,
+                    maxLines: 6,
+                    onChanged: (_) => setLocal(() {}),
+                    decoration: const InputDecoration(
+                      hintText: 'Nhập nội dung...',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Preview
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: wrapEnabled ? wrapWidth : double.infinity,
+                      ),
+                      child: Container(
+                        width: double.infinity,
+                        padding: EdgeInsets.all(bgEnabled ? padding : 0),
+                        decoration: BoxDecoration(
+                          color: bgEnabled ? bgColor : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.black12),
+                        ),
+                        child: Text(
+                          controllerText.text.isEmpty
+                              ? 'Preview'
+                              : controllerText.text,
+                          textAlign: align,
+                          style: TextStyle(
+                            color: color,
+                            fontSize: fontSize,
+                            fontWeight: fontWeight,
+                            fontFamily: fontFamily,
+                            fontStyle:
+                                italic ? FontStyle.italic : FontStyle.normal,
+                            decoration: underline
+                                ? TextDecoration.underline
+                                : TextDecoration.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  Row(
+                    children: [
+                      const Text('Font'),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: DropdownButton<String?>(
+                          isExpanded: true,
+                          value: fontFamily,
+                          items: fontFamilies
+                              .map(
+                                (f) => DropdownMenuItem<String?>(
+                                  value: f,
+                                  child: Text(f ?? 'Default'),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) => setLocal(() => fontFamily = v),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  Row(
+                    children: [
+                      const Text('Style'),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'Bold',
+                        onPressed: () => setLocal(() {
+                          fontWeight =
+                              fontWeight == FontWeight.w700 ? FontWeight.w600 : FontWeight.w700;
+                        }),
+                        icon: Icon(
+                          Icons.format_bold,
+                          color: fontWeight == FontWeight.w700
+                              ? Colors.blueAccent
+                              : Colors.black54,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Italic',
+                        onPressed: () => setLocal(() => italic = !italic),
+                        icon: Icon(
+                          Icons.format_italic,
+                          color: italic ? Colors.blueAccent : Colors.black54,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Underline',
+                        onPressed: () => setLocal(() => underline = !underline),
+                        icon: Icon(
+                          Icons.format_underline,
+                          color: underline ? Colors.blueAccent : Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 4),
+
+                  Row(
+                    children: [
+                      const Text('Align'),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'Left',
+                        onPressed: () => setLocal(() => align = TextAlign.left),
+                        icon: Icon(
+                          Icons.format_align_left,
+                          color: align == TextAlign.left
+                              ? Colors.blueAccent
+                              : Colors.black54,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Center',
+                        onPressed: () => setLocal(() => align = TextAlign.center),
+                        icon: Icon(
+                          Icons.format_align_center,
+                          color: align == TextAlign.center
+                              ? Colors.blueAccent
+                              : Colors.black54,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Right',
+                        onPressed: () => setLocal(() => align = TextAlign.right),
+                        icon: Icon(
+                          Icons.format_align_right,
+                          color: align == TextAlign.right
+                              ? Colors.blueAccent
+                              : Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  Row(
+                    children: [
+                      const Text('Size'),
+                      Expanded(
+                        child: Slider(
+                          value: fontSize.clamp(12, 180),
+                          min: 12,
+                          max: 180,
+                          onChanged: (v) => setLocal(() => fontSize = v),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 44,
+                        child: Text(fontSize.round().toString()),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  Row(
+                    children: [
+                      const Text('Color'),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => setLocal(() => color = currentColor),
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.black12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text('Tap vòng màu để dùng màu hiện tại'),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Background'),
+                    value: bgEnabled,
+                    onChanged: (v) => setLocal(() => bgEnabled = v),
+                  ),
+
+                  if (bgEnabled) ...[
+                    Row(
+                      children: [
+                        const Text('BG'),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => setLocal(() => bgColor = Colors.black.withOpacity(0.08)),
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: bgColor,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.black12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text('Tap để dùng nền mặc định'),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        const Text('Pad'),
+                        Expanded(
+                          child: Slider(
+                            value: padding.clamp(0, 40),
+                            min: 0,
+                            max: 40,
+                            onChanged: (v) => setLocal(() => padding = v),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 44,
+                          child: Text(padding.round().toString()),
+                        ),
+                      ],
+                    ),
+                  ],
+
+                  const SizedBox(height: 8),
+
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Wrap width'),
+                    value: wrapEnabled,
+                    onChanged: (v) => setLocal(() => wrapEnabled = v),
+                  ),
+
+                  if (wrapEnabled)
+                    Row(
+                      children: [
+                        const Text('W'),
+                        Expanded(
+                          child: Slider(
+                            value: wrapWidth.clamp(120, 1200),
+                            min: 120,
+                            max: 1200,
+                            onChanged: (v) => setLocal(() => wrapWidth = v),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 56,
+                          child: Text(wrapWidth.round().toString()),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(isEdit ? 'Cập nhật' : 'Thêm'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (result != true) return;
+    final textValue = controllerText.text.trim();
+    if (textValue.isEmpty) return;
+
+    setState(() {
+      if (isEdit) {
+        final t = texts[existingIndex!];
+        t.text = textValue;
+        t.fontSize = fontSize;
+        t.color = color;
+        t.fontWeight = fontWeight;
+        t.fontFamily = fontFamily;
+        t.italic = italic;
+        t.underline = underline;
+        t.align = align;
+        t.backgroundColor = bgEnabled ? bgColor : null;
+        t.padding = padding;
+        t.maxWidth = wrapEnabled ? wrapWidth : null;
+        _selectedTextIndex = existingIndex;
+        _selectedImageIndex = null;
+      } else {
+        final t = CanvasText(
+          id: _uuid.v4(),
+          text: textValue,
+          position: position ?? const Offset(0, 0),
+          color: color,
+          fontSize: fontSize,
+          fontWeight: fontWeight,
+          fontFamily: fontFamily,
+          italic: italic,
+          underline: underline,
+          align: align,
+          backgroundColor: bgEnabled ? bgColor : null,
+          padding: padding,
+          maxWidth: wrapEnabled ? wrapWidth : null,
+        );
+        texts.add(t);
+        _selectedTextIndex = texts.length - 1;
+        _selectedImageIndex = null;
+      }
+      activeTool = ActiveTool.hand;
+    });
+  }
+
+  void _deleteSelectedElement() {
+    setState(() {
+      if (_selectedImageIndex != null) {
+        images.removeAt(_selectedImageIndex!);
+        _selectedImageIndex = null;
+      } else if (_selectedTextIndex != null) {
+        texts.removeAt(_selectedTextIndex!);
+        _selectedTextIndex = null;
+      }
+    });
+  }
+
+  void _scaleSelected(double factor) {
+    setState(() {
+      if (_selectedImageIndex != null) {
+        images[_selectedImageIndex!].scale =
+            (images[_selectedImageIndex!].scale * factor).clamp(0.05, 10.0);
+      } else if (_selectedTextIndex != null) {
+        texts[_selectedTextIndex!].scale =
+            (texts[_selectedTextIndex!].scale * factor).clamp(0.2, 6.0);
+      }
+    });
+  }
+
+  void _rotateSelected(double deltaRadians) {
+    setState(() {
+      if (_selectedImageIndex != null) {
+        images[_selectedImageIndex!].rotation += deltaRadians;
+      } else if (_selectedTextIndex != null) {
+        texts[_selectedTextIndex!].rotation += deltaRadians;
+      }
+    });
+  }
+
+  void _moveSelectedForward() {
+    setState(() {
+      if (_selectedImageIndex != null) {
+        final idx = _selectedImageIndex!;
+        if (idx < images.length - 1) {
+          final item = images.removeAt(idx);
+          images.insert(idx + 1, item);
+          _selectedImageIndex = idx + 1;
+        }
+      } else if (_selectedTextIndex != null) {
+        final idx = _selectedTextIndex!;
+        if (idx < texts.length - 1) {
+          final item = texts.removeAt(idx);
+          texts.insert(idx + 1, item);
+          _selectedTextIndex = idx + 1;
+        }
+      }
+    });
+  }
+
+  void _moveSelectedBackward() {
+    setState(() {
+      if (_selectedImageIndex != null) {
+        final idx = _selectedImageIndex!;
+        if (idx > 0) {
+          final item = images.removeAt(idx);
+          images.insert(idx - 1, item);
+          _selectedImageIndex = idx - 1;
+        }
+      } else if (_selectedTextIndex != null) {
+        final idx = _selectedTextIndex!;
+        if (idx > 0) {
+          final item = texts.removeAt(idx);
+          texts.insert(idx - 1, item);
+          _selectedTextIndex = idx - 1;
+        }
+      }
+    });
   }
 
   void _showToast(String msg) {
@@ -290,7 +1209,9 @@ class _DrawPageState extends State<DrawPage> {
     }
   }
 
-  // --- UI DIALOGS ---
+  void toggleTool() => setState(() => activeTool = (activeTool == ActiveTool.brush) ? ActiveTool.eraser : ActiveTool.brush);
+
+  // --- HỘP THOẠI ĐỔI TÊN ---
   void _showRenameDialog() {
     TextEditingController nameController = TextEditingController(text: currentName);
     showDialog(
@@ -302,14 +1223,28 @@ class _DrawPageState extends State<DrawPage> {
         content: TextField(
           controller: nameController,
           autofocus: true,
-          decoration: const InputDecoration(hintText: "Enter new name", border: OutlineInputBorder()),
-          onSubmitted: (value) { if (value.trim().isNotEmpty) { _performRename(value.trim()); Navigator.pop(context); } },
+          decoration: const InputDecoration(
+            hintText: "Enter new name",
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          ),
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) {
+              _performRename(value.trim());
+              Navigator.pop(context);
+            }
+          },
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
           TextButton(
-            onPressed: () { if (nameController.text.trim().isNotEmpty) { _performRename(nameController.text.trim()); Navigator.pop(context); } },
-            child: const Text("Rename", style: TextStyle(fontWeight: FontWeight.bold)),
+            onPressed: () {
+              if (nameController.text.trim().isNotEmpty) {
+                _performRename(nameController.text.trim());
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("Rename", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -321,6 +1256,7 @@ class _DrawPageState extends State<DrawPage> {
     StorageHelper.renameDrawing(widget.drawingId, newName);
   }
 
+  // --- CÁC HÀM KHÁC ---
   void _openSettings() {
     DrawingSettingsModal.show(context, currentGridType: currentGridType, onGridTypeChanged: (type) => setState(() => currentGridType = type), onPickBgColor: _showBackgroundColorPicker);
   }
@@ -331,24 +1267,59 @@ class _DrawPageState extends State<DrawPage> {
     showDialog(context: context, barrierColor: Colors.transparent, builder: (ctx) => ProcreateColorPicker(currentColor: currentColor, onColorChanged: (c) => setState(() { currentColor = c; if(activeTool==ActiveTool.eraser) activeTool=ActiveTool.brush; })));
   }
 
-  // --- SAVE & EXPORT ---
   Future<void> _handleExport() async {
     await ExportHelper.exportDrawing(
       context: context,
       completedStrokes: _visibleStrokes,
       currentStroke: currentStroke,
       canvasColor: canvasColor,
-      images: _visibleImages,
+      images: images,
+      texts: texts,
       onLoadingChanged: (val) => setState(() => isSaving = val),
     );
   }
 
+  // HÀM LƯU TRANH
   Future<void> _saveDrawing() async {
     if (isSaving) return;
     setState(() => isSaving = true);
+
     try {
-      Uint8List pngBytes = await _generateSmallThumbnail(_visibleStrokes);
-      await StorageHelper.saveDrawing(widget.drawingId, _visibleStrokes, pngBytes, name: currentName);
+      // 1. Tạo Thumbnail nhỏ (Fix crash)
+      Uint8List pngBytes = await _generateSmallThumbnail(
+        _visibleStrokes,
+        images: images,
+        texts: texts,
+        canvasColor: canvasColor,
+      );
+
+      // 2. Build document
+      final doc = DrawingDocument(
+        version: 2,
+        strokes: _visibleStrokes,
+        texts: List<CanvasText>.from(texts),
+        images: images
+            .where((img) => img.bytes != null && img.bytes!.isNotEmpty)
+            .map(
+              (img) => ImportedImagePersisted(
+                id: img.id,
+                position: img.position,
+                scale: img.scale,
+                rotation: img.rotation,
+                bytes: img.bytes,
+              ),
+            )
+            .toList(),
+      );
+
+      // 2. Lưu dữ liệu
+      await StorageHelper.saveDrawing(
+        widget.drawingId,
+        doc: doc,
+        thumbnailPngBytes: pngBytes,
+        name: currentName,
+      );
+
     } catch (e) {
       debugPrint("Lỗi lưu: $e");
     } finally {
@@ -356,50 +1327,87 @@ class _DrawPageState extends State<DrawPage> {
     }
   }
 
-  Future<Uint8List> _generateSmallThumbnail(List<Stroke> strokes) async {
-    if (strokes.isEmpty) return Uint8List(0);
-    double minX = double.infinity, minY = double.infinity, maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+  //  HÀM TẠO THUMBNAIL (Helper)
+  Future<Uint8List> _generateSmallThumbnail(
+    List<Stroke> strokes, {
+    required List<ImportedImage> images,
+    required List<CanvasText> texts,
+    required Color canvasColor,
+  }) async {
+    if (strokes.isEmpty && images.isEmpty && texts.isEmpty) return Uint8List(0);
+
+    // Tính vùng bao quanh nét vẽ
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
 
     for (var stroke in strokes) {
       for (var p in stroke.points) {
-        if (p.dx < minX) minX = p.dx; if (p.dy < minY) minY = p.dy;
-        if (p.dx > maxX) maxX = p.dx; if (p.dy > maxY) maxY = p.dy;
+        if (p.dx < minX) minX = p.dx;
+        if (p.dy < minY) minY = p.dy;
+        if (p.dx > maxX) maxX = p.dx;
+        if (p.dy > maxY) maxY = p.dy;
       }
     }
+
+    for (final img in images) {
+      final w = img.image.width * img.scale;
+      final h = img.image.height * img.scale;
+      final left = img.position.dx;
+      final top = img.position.dy;
+      final right = left + w;
+      final bottom = top + h;
+      if (left < minX) minX = left;
+      if (top < minY) minY = top;
+      if (right > maxX) maxX = right;
+      if (bottom > maxY) maxY = bottom;
+    }
+
+    for (final t in texts) {
+      if (t.text.trim().isEmpty) continue;
+      final tp = TextPainter(
+        text: TextSpan(
+          text: t.text,
+          style: TextStyle(
+            color: t.color,
+            fontSize: t.fontSize,
+            fontWeight: t.fontWeight,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      final w = tp.width * t.scale;
+      final h = tp.height * t.scale;
+      final left = t.position.dx;
+      final top = t.position.dy;
+      final right = left + w;
+      final bottom = top + h;
+      if (left < minX) minX = left;
+      if (top < minY) minY = top;
+      if (right > maxX) maxX = right;
+      if (bottom > maxY) maxY = bottom;
+    }
+
     minX -= 50; minY -= 50; maxX += 50; maxY += 50;
-    double w = maxX - minX; double h = maxY - minY;
+    double w = maxX - minX;
+    double h = maxY - minY;
     if (w <= 0 || h <= 0) return Uint8List(0);
 
     const double thumbSize = 300.0;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, thumbSize, thumbSize));
 
-    // Vẽ nền thumbnail (nên dùng màu nền hiện tại)
-    canvas.drawRect(const Rect.fromLTWH(0, 0, thumbSize, thumbSize), Paint()..color = canvasColor);
+    canvas.drawRect(
+      const Rect.fromLTWH(0, 0, thumbSize, thumbSize),
+      Paint()..color = canvasColor,
+    );
 
     double scale = thumbSize / (w > h ? w : h);
-    canvas.scale(scale); canvas.translate(-minX, -minY);
+    canvas.scale(scale);
+    canvas.translate(-minX, -minY);
 
-    final paint = Paint()..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round..style = PaintingStyle.stroke;
-    for (var stroke in strokes) {
-      // Logic vẽ lại cho thumbnail cũng phải xử lý tẩy
-      if (stroke.isEraser) {
-        paint.color = canvasColor;
-        paint.blendMode = BlendMode.srcOver;
-      } else {
-        paint.color = stroke.color;
-        paint.blendMode = BlendMode.srcOver;
-      }
-      paint.strokeWidth = stroke.width;
-
-      if (stroke.points.length > 1) {
-        Path path = Path(); path.moveTo(stroke.points[0].dx, stroke.points[0].dy);
-        for (int i = 1; i < stroke.points.length; i++) path.lineTo(stroke.points[i].dx, stroke.points[i].dy);
-        canvas.drawPath(path, paint);
-      } else if (stroke.points.isNotEmpty) {
-        canvas.drawPoints(ui.PointMode.points, stroke.points, paint);
-      }
-    }
+    final painter = DrawPainter(strokes, images, texts: texts);
+    painter.paint(canvas, Size(w, h));
 
     final picture = recorder.endRecording();
     final img = await picture.toImage(thumbSize.toInt(), thumbSize.toInt());
@@ -407,14 +1415,23 @@ class _DrawPageState extends State<DrawPage> {
     return byteData!.buffer.asUint8List();
   }
 
+  // XỬ LÝ NÚT BACK
   Future<void> _handleBack() async {
     await _saveDrawing();
+
     if (!mounted) return;
-    if (Navigator.canPop(context)) Navigator.pop(context);
-    else Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const GalleryPage()));
+
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const GalleryPage()));
+    }
   }
 
-  Future<bool> _onWillPop() async { await _handleBack(); return false; }
+  Future<bool> _onWillPop() async {
+    await _handleBack();
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -427,14 +1444,21 @@ class _DrawPageState extends State<DrawPage> {
             // 1. CANVAS
             Positioned.fill(
               child: Listener(
-                onPointerDown: _onPointerDown, onPointerMove: _onPointerMove, onPointerUp: _onPointerUp, onPointerCancel: _onPointerCancel,
+                onPointerDown: _onPointerDown,
+                onPointerMove: _onPointerMove,
+                onPointerUp: _onPointerUp,
+                onPointerCancel: _onPointerCancel,
                 child: InteractiveViewer(
                   transformationController: controller,
                   boundaryMargin: const EdgeInsets.all(double.infinity),
                   minScale: 0.1, maxScale: 5.0, constrained: false,
                   panEnabled: false, scaleEnabled: true,
-                  onInteractionUpdate: (details) { if (details.scale != 1.0) _hasZoomed = true; },
-                  onInteractionStart: (d) { if (d.pointerCount > 1) setState(() { _isMultitouching = true; currentStroke = null; }); },
+                  onInteractionUpdate: (details) {
+                    if (details.scale != 1.0) _hasZoomed = true;
+                  },
+                  onInteractionStart: (d) {
+                    if (d.pointerCount > 1) setState(() { _isMultitouching = true; currentStroke = null; });
+                  },
                   child: SizedBox(
                     width: canvasWidth, height: canvasHeight,
                     child: RepaintBoundary(
@@ -442,24 +1466,23 @@ class _DrawPageState extends State<DrawPage> {
                       child: Stack(
                         children: [
                           Positioned.fill(child: Stack(children: [Container(key: ValueKey(canvasColor), color: canvasColor), RepaintBoundary(child: AnimatedBuilder(animation: controller, builder: (c, _) => CustomPaint(painter: GridPainter(gridSize: gridSize, gridColor: gridColor, controller: controller, gridType: currentGridType))))])),
-
-                          //  VẼ ẢNH + NÉT (ĐÃ FIX: Truyền canvasColor để tẩy hoạt động đúng)
-                          Positioned.fill(child: RepaintBoundary(child: CustomPaint(
-                              isComplex: false,
-                              foregroundPainter: DrawPainter(
-                                _visibleStrokes,
-                                _visibleImages,
-                                canvasColor: canvasColor, //  : Truyền màu nền vào đây!
-                              )
-                          ))),
-
-                          // Nét vẽ hiện tại (Realtime)
-                          Positioned.fill(child: CustomPaint(foregroundPainter: DrawPainter(
-                              currentStroke == null ? [] : [currentStroke!],
-                              [],
-                              canvasColor: canvasColor, // Truyền vào đây nữa
-                              isPreview: true
-                          ))),
+                          Positioned.fill(child: RepaintBoundary(child: CustomPaint(isComplex: false, foregroundPainter: DrawPainter(_visibleStrokes, images, texts: texts)))),
+                          Positioned.fill(child: CustomPaint(foregroundPainter: DrawPainter(currentStroke == null ? [] : [currentStroke!], [], texts: const [], canvasColor: canvasColor, isPreview: true))),
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                foregroundPainter: SelectionPainter(
+                                  selectedImage: _selectedImageIndex == null
+                                      ? null
+                                      : images[_selectedImageIndex!],
+                                  selectedText: _selectedTextIndex == null
+                                      ? null
+                                      : texts[_selectedTextIndex!],
+                                  viewportScale: currentScale,
+                                ),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -474,8 +1497,9 @@ class _DrawPageState extends State<DrawPage> {
               child: DrawingToolbar(
                 onBack: _handleBack,
                 onSave: _handleExport,
-                onImport: _pickImage,
                 onSettingsSelect: _openSettings,
+                onAddImage: _pickAndInsertImage,
+                onAddText: () => setState(() => activeTool = ActiveTool.text),
                 zoomLevel: "${(currentScale * 100).round()}%",
                 drawingName: currentName,
                 onRename: _showRenameDialog,
@@ -487,23 +1511,123 @@ class _DrawPageState extends State<DrawPage> {
               left: 4, top: 100, bottom: 80,
               child: Center(
                 child: DrawingSidebar(
-                  currentWidth: currentWidth, currentOpacity: currentOpacity, currentColor: currentColor,
-                  onWidthChanged: (v) => setState(() => currentWidth = v), onOpacityChanged: (v) => setState(() => currentOpacity = v),
-                  onUndo: undo, onRedo: redo, onColorTap: _showColorPicker,
-                  activeTool: activeTool,
-                  onSelectBrush: () => setState(() => activeTool = ActiveTool.brush),
-                  onSelectEraser: () => setState(() => activeTool = ActiveTool.eraser),
+                  currentWidth: currentWidth,
+                  currentOpacity: currentOpacity,
+                  currentColor: currentColor,
+                  onWidthChanged: (v) => setState(() => currentWidth = v),
+                  onOpacityChanged: (v) => setState(() => currentOpacity = v),
+                  onUndo: undo,
+                  onRedo: redo,
+                  onColorTap: _showColorPicker,
+
+                  // CẬP NHẬT CÁC THAM SỐ MỚI Ở ĐÂY:
+                  activeTool: activeTool, // Truyền trạng thái hiện tại
+
+                  onSelectBrush: () {
+                    setState(() => activeTool = ActiveTool.brush);
+                  },
+
+                  onSelectEraser: () {
+                    setState(() => activeTool = ActiveTool.eraser);
+                  },
+
+                  onSelectHand: () {
+                    setState(() => activeTool = ActiveTool.hand);
+                  },
+
+                  onSelectText: () {
+                    setState(() => activeTool = ActiveTool.text);
+                  },
                 ),
               ),
             ),
 
-            // 4. RIGHT SIDEBAR
+
+            // 4. RIGHT SIDEBAR (LAYERS)
             Positioned(
               right: 0, top: 60,
               child: DrawingLayersSidebar(
-                layers: layers, activeLayerIndex: activeLayerIndex, onNewLayer: _addNewLayer, onSelectLayer: _selectLayer, onToggleVisibility: _toggleLayerVisibility, onDeleteLayer: _deleteLayer,
+                layers: layers,
+                activeLayerIndex: activeLayerIndex,
+                onNewLayer: _addNewLayer,
+                onSelectLayer: _selectLayer,
+                onToggleVisibility: _toggleLayerVisibility,
+                onDeleteLayer: _deleteLayer,
               ),
             ),
+
+            if (_selectedImageIndex != null || _selectedTextIndex != null)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 18,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.12),
+                          blurRadius: 14,
+                          offset: const Offset(0, 6),
+                        )
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          onPressed: _deleteSelectedElement,
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.layers_outlined),
+                          onPressed: _moveSelectedBackward,
+                          tooltip: 'Đưa xuống dưới',
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.layers_rounded),
+                          onPressed: _moveSelectedForward,
+                          tooltip: 'Đưa lên trên',
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.remove_circle_outline_rounded),
+                          onPressed: () => _scaleSelected(0.9),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.add_circle_outline_rounded),
+                          onPressed: () => _scaleSelected(1.1),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.rotate_left_rounded),
+                          onPressed: () => _rotateSelected(-0.261799),
+                          tooltip: 'Xoay -15°',
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.rotate_right_rounded),
+                          onPressed: () => _rotateSelected(0.261799),
+                          tooltip: 'Xoay +15°',
+                        ),
+                        if (_selectedTextIndex != null)
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () => _promptAddOrEditText(existingIndex: _selectedTextIndex),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
 
             if (isSaving || isInitialLoading)
               Container(color: Colors.black26, child: const Center(child: CircularProgressIndicator(color: Colors.black))),
