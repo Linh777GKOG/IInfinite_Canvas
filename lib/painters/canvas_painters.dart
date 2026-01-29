@@ -5,40 +5,41 @@ import '../models/drawing_models.dart';
 // 1. Enum định nghĩa kiểu lưới
 enum GridType { lines, dots, none }
 
-// 2. Class vẽ nét bút (DrawPainter) - Bị thiếu lúc nãy
+// 2. Class vẽ nét bút và ảnh (DrawPainter)
 class DrawPainter extends CustomPainter {
   final List<Stroke> strokes;
   final List<ImportedImage> images;
-  final Color? canvasColor; // Màu nền để giả lập tẩy
-  final bool isPreview;     // Cờ báo hiệu đang vẽ nháp hay vẽ thật
+  final Color? canvasColor;
+  final bool isPreview;
 
   DrawPainter(
       this.strokes,
       this.images, {
         this.canvasColor,
-        this.isPreview = false, // Mặc định là false (vẽ thật)
+        this.isPreview = false,
       });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 1. Vẽ ảnh trước
+    // --- 1. VẼ ẢNH (Nằm dưới cùng) ---
     for (var img in images) {
+      final dstRect = Rect.fromLTWH(
+        img.position.dx,
+        img.position.dy,
+        img.width * img.scale,
+        img.height * img.scale,
+      );
+
       paintImage(
         canvas: canvas,
-        rect: Rect.fromLTWH(img.position.dx, img.position.dy,
-            img.image.width * img.scale, img.image.height * img.scale),
+        rect: dstRect,
         image: img.image,
+        filterQuality: FilterQuality.medium,
         fit: BoxFit.fill,
       );
     }
 
-    // 2. Tạo một Layer mới để xử lý BlendMode.clear chuẩn xác hơn (cho nét đã xong)
-    // Lưu ý: Chỉ dùng saveLayer khi không phải preview để tối ưu hiệu năng
-    if (!isPreview && strokes.any((s) => s.isEraser)) {
-      canvas.saveLayer(Rect.fromLTWH(0, 0, size.width, size.height), Paint());
-    }
-
-    // 3. Vẽ nét bút
+    // --- 2. VẼ NÉT BÚT ---
     for (final stroke in strokes) {
       final paint = Paint()
         ..strokeWidth = stroke.width
@@ -47,29 +48,23 @@ class DrawPainter extends CustomPainter {
         ..style = PaintingStyle.stroke;
 
       if (stroke.isEraser) {
-        if (isPreview && canvasColor != null) {
-          // TRƯỜNG HỢP PREVIEW (ĐANG KÉO):
-          // Vẽ màu nền đè lên để che nét cũ -> Tạo cảm giác đang tẩy
-          paint.color = canvasColor!;
-          paint.blendMode = BlendMode.srcOver;
-        } else {
-          // TRƯỜNG HỢP VẼ THẬT (ĐÃ THẢ TAY):
-          // Đục thủng lớp vẽ để lộ nền bên dưới
-          paint.color = Colors.transparent;
-          paint.blendMode = BlendMode.clear;
-        }
+        //  LOGIC TẨY AN TOÀN: Tô đè màu nền
+        paint.color = canvasColor ?? Colors.white;
+        paint.blendMode = BlendMode.srcOver;
       } else {
         // Nét vẽ thường
         paint.color = stroke.color;
         paint.blendMode = BlendMode.srcOver;
       }
 
-      // (Đoạn vẽ Path giữ nguyên như cũ)
+      // Nếu chỉ là 1 điểm chấm
       if (stroke.points.length == 1) {
-        canvas.drawPoints(ui.PointMode.points, stroke.points, paint);
+        paint.style = PaintingStyle.fill;
+        canvas.drawCircle(stroke.points.first, stroke.width / 2, paint);
         continue;
       }
 
+      // Vẽ đường cong mượt
       final path = Path();
       path.moveTo(stroke.points[0].dx, stroke.points[0].dy);
 
@@ -85,12 +80,8 @@ class DrawPainter extends CustomPainter {
         }
       }
       path.lineTo(stroke.points.last.dx, stroke.points.last.dy);
-      canvas.drawPath(path, paint);
-    }
 
-    // Restore layer nếu đã save
-    if (!isPreview && strokes.any((s) => s.isEraser)) {
-      canvas.restore();
+      canvas.drawPath(path, paint);
     }
   }
 
@@ -98,7 +89,7 @@ class DrawPainter extends CustomPainter {
   bool shouldRepaint(covariant DrawPainter oldDelegate) => true;
 }
 
-// 3. Class vẽ lưới (GridPainter) - Đã sửa lỗi Vector3
+// 3. Class vẽ lưới (GridPainter) - Đã được khôi phục
 class GridPainter extends CustomPainter {
   final double gridSize;
   final Color gridColor;
@@ -121,23 +112,19 @@ class GridPainter extends CustomPainter {
       ..strokeWidth = 0.5
       ..style = PaintingStyle.stroke;
 
-    // Lấy thông tin ma trận biến đổi
+    // Lấy thông tin Zoom/Pan
     final Matrix4 matrix = controller.value;
     final double scale = matrix.getMaxScaleOnAxis();
-
-    // Chuyển Vector3 thành Offset
     final translationVector = matrix.getTranslation();
-    final Offset translation = Offset(translationVector.x, translationVector.y);
 
-    // Tính toán vùng nhìn thấy (Viewport)
+    // Tính vùng nhìn thấy (Viewport)
     final Rect viewport = Rect.fromLTWH(
-      -translation.dx / scale,
-      -translation.dy / scale,
+      -translationVector.x / scale,
+      -translationVector.y / scale,
       size.width / scale,
       size.height / scale,
     );
 
-    // Vẽ rộng ra một chút để không bị đứt nét ở rìa
     final Rect drawBounds = viewport.inflate(gridSize);
 
     final double startX = (drawBounds.left / gridSize).floor() * gridSize;
@@ -146,7 +133,6 @@ class GridPainter extends CustomPainter {
     final double endY = (drawBounds.bottom / gridSize).ceil() * gridSize;
 
     if (gridType == GridType.lines) {
-      // Vẽ kẻ ô
       for (double x = startX; x <= endX; x += gridSize) {
         canvas.drawLine(Offset(x, startY), Offset(x, endY), paint);
       }
@@ -154,7 +140,6 @@ class GridPainter extends CustomPainter {
         canvas.drawLine(Offset(startX, y), Offset(endX, y), paint);
       }
     } else if (gridType == GridType.dots) {
-      // Vẽ chấm tròn
       final dotPaint = Paint()
         ..color = gridColor
         ..style = PaintingStyle.fill;
