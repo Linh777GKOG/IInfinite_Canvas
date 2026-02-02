@@ -19,11 +19,11 @@ class ProcreateColorPicker extends StatefulWidget {
 class _ProcreateColorPickerState extends State<ProcreateColorPicker> {
   late HSVColor currentHsv;
 
-  final List<Color> historyColors = [
-    Colors.red, Colors.green, Colors.blue, Colors.yellow,
-    Colors.purple, Colors.orange, Colors.cyan, Colors.white,
-    Colors.grey, Colors.black
-  ];
+  final historyColors = List.generate(
+    24,
+        (i) => HSVColor.fromAHSV(1, i * 15.0, 1, 1).toColor(),
+  );
+
 
   @override
   void initState() {

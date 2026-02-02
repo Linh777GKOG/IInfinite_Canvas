@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // 🔥 1. Import Firebase Auth
+
 import '../models/drawing_models.dart';
 import '../utils/storage_helper.dart';
 import 'draw_page.dart';
@@ -59,6 +61,34 @@ class _GalleryPageState extends State<GalleryPage> {
     _loadDrawings();
   }
 
+  // 🔥 2. HÀM ĐĂNG XUẤT (Thêm mới)
+  Future<void> _signOut() async {
+    // Hiện hộp thoại hỏi cho chắc
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Sign Out"),
+        content: const Text("Are you sure you want to sign out?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Sign Out", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      // Thực hiện đăng xuất
+      await FirebaseAuth.instance.signOut();
+      // Không cần Navigator.push... vì StreamBuilder ở main.dart sẽ tự lo việc đó
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -82,9 +112,23 @@ class _GalleryPageState extends State<GalleryPage> {
                       letterSpacing: -1,
                     ),
                   ),
-                  IconButton(
-                    onPressed: (){}, // Nút cài đặt giả lập
-                    icon: const Icon(Icons.settings_outlined, color: Colors.black87, size: 28),
+
+                  // 🔥 3. Cụm nút bấm bên phải (Thêm nút Đăng xuất)
+                  Row(
+                    children: [
+                      // Nút Đăng Xuất
+                      IconButton(
+                        onPressed: _signOut,
+                        tooltip: "Sign Out",
+                        icon: const Icon(Icons.logout, color: Colors.redAccent, size: 28),
+                      ),
+                      const SizedBox(width: 8),
+                      // Nút Cài đặt (Giữ nguyên)
+                      IconButton(
+                        onPressed: (){},
+                        icon: const Icon(Icons.settings_outlined, color: Colors.black87, size: 28),
+                      ),
+                    ],
                   )
                 ],
               ),
