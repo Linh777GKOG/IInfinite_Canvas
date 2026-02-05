@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "336677721325",
+    "project_id": "canvas-cffc8",
+    "storage_bucket": "canvas-cffc8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:336677721325:android:46f45f1183f8edb9b8e8e4",
+        "android_client_info": {
+          "package_name": "com.example.infinitive_canvas"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAmi8k89BVkO9HKv5phNlfCS3p916-JNhg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
