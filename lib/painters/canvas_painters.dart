@@ -5,7 +5,7 @@ import '../models/drawing_models.dart';
 // 1. Enum định nghĩa kiểu lưới
 enum GridType { lines, dots, none }
 
-// 2. Class vẽ nét bút (DrawPainter) - Bị thiếu lúc nãy
+// 2. Class vẽ nét bút (DrawPainter)
 class DrawPainter extends CustomPainter {
   final List<Stroke> strokes;
   final List<ImportedImage> images;
@@ -14,17 +14,17 @@ class DrawPainter extends CustomPainter {
   final bool isPreview;     // Cờ báo hiệu đang vẽ nháp hay vẽ thật
 
   DrawPainter(
-      this.strokes,
-      this.images, {
-        this.texts = const [],
-        this.canvasColor,
-        this.isPreview = false, // Mặc định là false (vẽ thật)
-      });
+    this.strokes,
+    this.images, {
+    this.texts = const [],
+    this.canvasColor,
+    this.isPreview = false,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     // 1. Vẽ ảnh trước
-    for (var img in images) {
+    for (final img in images) {
       final w = img.image.width * img.scale;
       final h = img.image.height * img.scale;
 
@@ -43,39 +43,34 @@ class DrawPainter extends CustomPainter {
       canvas.restore();
     }
 
-    // 2. Tạo một Layer mới để xử lý BlendMode.clear chuẩn xác hơn (cho nét đã xong)
-    // Lưu ý: Chỉ dùng saveLayer khi không phải preview để tối ưu hiệu năng
-    if (!isPreview && strokes.any((s) => s.isEraser)) {
+    // 2. Tối ưu hóa việc kiểm tra tẩy và sử dụng saveLayer
+    final bool hasEraserStrokes = !isPreview && strokes.any((s) => s.isEraser);
+    if (hasEraserStrokes) {
       canvas.saveLayer(Rect.fromLTWH(0, 0, size.width, size.height), Paint());
     }
 
-    // 3. Vẽ nét bút
+    // 3. Vẽ nét bút với Paint object được tái sử dụng
+    final paint = Paint()
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+
     for (final stroke in strokes) {
-      final paint = Paint()
-        ..strokeWidth = stroke.width
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..style = PaintingStyle.stroke;
+      paint.strokeWidth = stroke.width;
 
       if (stroke.isEraser) {
         if (isPreview && canvasColor != null) {
-          // TRƯỜNG HỢP PREVIEW (ĐANG KÉO):
-          // Vẽ màu nền đè lên để che nét cũ -> Tạo cảm giác đang tẩy
           paint.color = canvasColor!;
           paint.blendMode = BlendMode.srcOver;
         } else {
-          // TRƯỜNG HỢP VẼ THẬT (ĐÃ THẢ TAY):
-          // Đục thủng lớp vẽ để lộ nền bên dưới
           paint.color = Colors.transparent;
           paint.blendMode = BlendMode.clear;
         }
       } else {
-        // Nét vẽ thường
         paint.color = stroke.color;
         paint.blendMode = BlendMode.srcOver;
       }
 
-      // (Đoạn vẽ Path giữ nguyên như cũ)
       if (stroke.points.length == 1) {
         canvas.drawPoints(ui.PointMode.points, stroke.points, paint);
         continue;
@@ -99,8 +94,7 @@ class DrawPainter extends CustomPainter {
       canvas.drawPath(path, paint);
     }
 
-    // Restore layer nếu đã save
-    if (!isPreview && strokes.any((s) => s.isEraser)) {
+    if (hasEraserStrokes) {
       canvas.restore();
     }
 
@@ -155,10 +149,21 @@ class DrawPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant DrawPainter oldDelegate) => true;
+  bool shouldRepaint(covariant DrawPainter oldDelegate) {
+    // Tối ưu: Chỉ vẽ lại khi cần thiết, thay vì luôn trả về true.
+    // So sánh các thuộc tính để quyết định có cần vẽ lại không.
+    // Lưu ý: So sánh list (strokes, images, texts) bằng '!=' chỉ kiểm tra
+    // tham chiếu. Điều này hoạt động tốt nếu bạn sử dụng các immutable list
+    // và thay thế toàn bộ list khi có thay đổi.
+    return oldDelegate.strokes != strokes ||
+        oldDelegate.images != images ||
+        oldDelegate.texts != texts ||
+        oldDelegate.canvasColor != canvasColor ||
+        oldDelegate.isPreview != isPreview;
+  }
 }
 
-// 3. Class vẽ lưới (GridPainter) - Đã sửa lỗi Vector3
+// 3. Class vẽ lưới (GridPainter)
 class GridPainter extends CustomPainter {
   final double gridSize;
   final Color gridColor;
@@ -181,15 +186,11 @@ class GridPainter extends CustomPainter {
       ..strokeWidth = 0.5
       ..style = PaintingStyle.stroke;
 
-    // Lấy thông tin ma trận biến đổi
     final Matrix4 matrix = controller.value;
     final double scale = matrix.getMaxScaleOnAxis();
-
-    // Chuyển Vector3 thành Offset
     final translationVector = matrix.getTranslation();
     final Offset translation = Offset(translationVector.x, translationVector.y);
 
-    // Tính toán vùng nhìn thấy (Viewport)
     final Rect viewport = Rect.fromLTWH(
       -translation.dx / scale,
       -translation.dy / scale,
@@ -197,7 +198,6 @@ class GridPainter extends CustomPainter {
       size.height / scale,
     );
 
-    // Vẽ rộng ra một chút để không bị đứt nét ở rìa
     final Rect drawBounds = viewport.inflate(gridSize);
 
     final double startX = (drawBounds.left / gridSize).floor() * gridSize;
@@ -206,7 +206,6 @@ class GridPainter extends CustomPainter {
     final double endY = (drawBounds.bottom / gridSize).ceil() * gridSize;
 
     if (gridType == GridType.lines) {
-      // Vẽ kẻ ô
       for (double x = startX; x <= endX; x += gridSize) {
         canvas.drawLine(Offset(x, startY), Offset(x, endY), paint);
       }
@@ -214,11 +213,9 @@ class GridPainter extends CustomPainter {
         canvas.drawLine(Offset(startX, y), Offset(endX, y), paint);
       }
     } else if (gridType == GridType.dots) {
-      // Vẽ chấm tròn
       final dotPaint = Paint()
         ..color = gridColor
         ..style = PaintingStyle.fill;
-
       final double dotRadius = 1.5 / scale.clamp(0.5, 2.0);
 
       for (double x = startX; x <= endX; x += gridSize) {
@@ -231,13 +228,16 @@ class GridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant GridPainter oldDelegate) {
+    // Tối ưu: Không cần kiểm tra controller ở đây nếu bạn đã truyền nó
+    // vào `repaint` của `CustomPaint`. Flutter sẽ tự động xử lý.
+    // ví dụ: CustomPaint(painter: ..., repaint: myController)
     return oldDelegate.gridSize != gridSize ||
         oldDelegate.gridColor != gridColor ||
-        oldDelegate.controller != controller ||
         oldDelegate.gridType != gridType;
   }
 }
 
+// 4. Class vẽ khung chọn (SelectionPainter) - Đã được tối ưu
 class SelectionPainter extends CustomPainter {
   final ImportedImage? selectedImage;
   final CanvasText? selectedText;
@@ -251,59 +251,21 @@ class SelectionPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.blueAccent.withOpacity(0.9)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    final double handleRadius = (7.0 / viewportScale).clamp(2.0, 14.0);
-    final double handleGap = (18.0 / viewportScale).clamp(6.0, 32.0);
-    final handlePaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    final handleOutline = Paint()
-      ..color = Colors.blueAccent.withOpacity(0.95)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = (2.0 / viewportScale).clamp(1.0, 3.0);
+    Rect? rect;
+    Offset? center;
+    double? rotation;
 
     if (selectedImage != null) {
       final img = selectedImage!;
       final w = img.image.width * img.scale;
       final h = img.image.height * img.scale;
-      final center = Offset(img.position.dx + w / 2, img.position.dy + h / 2);
-
-      canvas.save();
-      canvas.translate(center.dx, center.dy);
-      canvas.rotate(img.rotation);
-      final rect = Rect.fromCenter(center: Offset.zero, width: w, height: h);
-      canvas.drawRect(rect, paint);
-
-      // Corner handles
-      final corners = <Offset>[
-        rect.topLeft,
-        rect.topRight,
-        rect.bottomRight,
-        rect.bottomLeft,
-      ];
-      for (final p in corners) {
-        canvas.drawCircle(p, handleRadius, handlePaint);
-        canvas.drawCircle(p, handleRadius, handleOutline);
-      }
-
-      // Rotate handle (above top-center)
-      final rotateP = Offset(0, rect.top - handleGap);
-      canvas.drawLine(Offset(0, rect.top), rotateP, handleOutline);
-      canvas.drawCircle(rotateP, handleRadius, handlePaint);
-      canvas.drawCircle(rotateP, handleRadius, handleOutline);
-
-      canvas.restore();
-      return;
-    }
-
-    if (selectedText != null) {
+      center = Offset(img.position.dx + w / 2, img.position.dy + h / 2);
+      rotation = img.rotation;
+      rect = Rect.fromCenter(center: Offset.zero, width: w, height: h);
+    } else if (selectedText != null) {
       final t = selectedText!;
       if (t.text.trim().isEmpty) return;
-      final tp = TextPainter(
+      final textPainter = TextPainter(
         text: TextSpan(
           text: t.text,
           style: TextStyle(
@@ -321,36 +283,63 @@ class SelectionPainter extends CustomPainter {
       )..layout(maxWidth: t.maxWidth ?? double.infinity);
 
       final extraPad = t.backgroundColor == null ? 0.0 : t.padding * 2;
-      final baseW = tp.width + extraPad;
-      final baseH = tp.height + extraPad;
+      final baseW = textPainter.width + extraPad;
+      final baseH = textPainter.height + extraPad;
       final w = baseW * t.scale;
       final h = baseH * t.scale;
-      final center = Offset(t.position.dx + w / 2, t.position.dy + h / 2);
-
-      canvas.save();
-      canvas.translate(center.dx, center.dy);
-      canvas.rotate(t.rotation);
-      final rect = Rect.fromCenter(center: Offset.zero, width: w, height: h);
-      canvas.drawRect(rect, paint);
-
-      final corners = <Offset>[
-        rect.topLeft,
-        rect.topRight,
-        rect.bottomRight,
-        rect.bottomLeft,
-      ];
-      for (final p in corners) {
-        canvas.drawCircle(p, handleRadius, handlePaint);
-        canvas.drawCircle(p, handleRadius, handleOutline);
-      }
-
-      final rotateP = Offset(0, rect.top - handleGap);
-      canvas.drawLine(Offset(0, rect.top), rotateP, handleOutline);
-      canvas.drawCircle(rotateP, handleRadius, handlePaint);
-      canvas.drawCircle(rotateP, handleRadius, handleOutline);
-
-      canvas.restore();
+      center = Offset(t.position.dx + w / 2, t.position.dy + h / 2);
+      rotation = t.rotation;
+      rect = Rect.fromCenter(center: Offset.zero, width: w, height: h);
     }
+
+    if (rect != null && center != null && rotation != null) {
+      _drawSelectionBox(canvas, rect, center, rotation);
+    }
+  }
+
+  void _drawSelectionBox(
+      Canvas canvas, Rect rect, Offset center, double rotation) {
+    final framePaint = Paint()
+      ..color = Colors.blueAccent.withOpacity(0.9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = (2.0 / viewportScale).clamp(1.0, 3.0);
+
+    final handleRadius = (7.0 / viewportScale).clamp(2.0, 14.0);
+    final handleGap = (18.0 / viewportScale).clamp(6.0, 32.0);
+    final handleFillPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    final handleStrokePaint = Paint()
+      ..color = Colors.blueAccent.withOpacity(0.95)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = (2.0 / viewportScale).clamp(1.0, 3.0);
+
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(rotation);
+
+    // Vẽ khung
+    canvas.drawRect(rect, framePaint);
+
+    // Vẽ các handle ở góc
+    final corners = <Offset>[
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomRight,
+      rect.bottomLeft,
+    ];
+    for (final p in corners) {
+      canvas.drawCircle(p, handleRadius, handleFillPaint);
+      canvas.drawCircle(p, handleRadius, handleStrokePaint);
+    }
+
+    // Vẽ handle xoay
+    final rotateHandlePos = Offset(0, rect.top - handleGap);
+    canvas.drawLine(Offset(0, rect.top), rotateHandlePos, handleStrokePaint);
+    canvas.drawCircle(rotateHandlePos, handleRadius, handleFillPaint);
+    canvas.drawCircle(rotateHandlePos, handleRadius, handleStrokePaint);
+
+    canvas.restore();
   }
 
   @override
