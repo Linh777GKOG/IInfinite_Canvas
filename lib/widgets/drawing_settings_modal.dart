@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../painters/canvas_painters.dart'; // Để lấy GridType enum
-import 'procreate_color_picker.dart';
+
 
 class DrawingSettingsModal {
   // Hàm hiển thị Bottom Sheet chính

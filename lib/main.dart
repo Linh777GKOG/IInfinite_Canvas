@@ -36,9 +36,9 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Pro Art Studio',
+      title: 'Infinite canvas',
 
-      // Giữ nguyên Theme Dark cực ngầu của bạn
+      // Giữ nguyên Theme Dark
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF121212),
         primaryColor: const Color(0xFF32C5FF),
@@ -56,7 +56,7 @@ class MyApp extends StatelessWidget {
         ),
       ),
 
-      // 🔥 LOGIC KIỂM TRA ĐĂNG NHẬP
+      //  LOGIC KIỂM TRA ĐĂNG NHẬP
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
