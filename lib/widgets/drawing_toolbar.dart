@@ -6,8 +6,8 @@ class DrawingToolbar extends StatelessWidget {
   final VoidCallback onSettingsSelect;
   final VoidCallback? onAddImage;
   final VoidCallback? onAddText;
-  final VoidCallback onRename; //  Hàm gọi khi bấm vào tên
-  final String drawingName;    // Tên file hiện tại
+  final VoidCallback onRename;
+  final String drawingName;
   final String zoomLevel;
 
   const DrawingToolbar({
@@ -24,77 +24,89 @@ class DrawingToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final shadowColor = Colors.black.withOpacity(0.08);
+
     return SafeArea(
-      child: Container(
-        height: 60,
-        padding: const EdgeInsets.only(left: 4, right: 4, top: 15, bottom: 5),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // --- CỤM TRÁI ---
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildSquareBtn(Icons.grid_view_rounded, onTap: onBack),
-                const SizedBox(width: 8),
-                Container(width: 1, height: 20, color: Colors.black12),
-                const SizedBox(width: 8),
-
-                //  Text bấm được
-                InkWell(
-                  onTap: onRename, // Bấm vào để đổi tên
-                  borderRadius: BorderRadius.circular(4),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
-                    child: SizedBox(
-                      width: 120,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              drawingName, // Hiển thị tên biến truyền vào
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.black87,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ),
-                          // Icon bút chì nhỏ để người dùng biết là sửa được
-                          const SizedBox(width: 4),
-                          const Icon(Icons.edit, size: 12, color: Colors.black26),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            // --- CỤM PHẢI  ---
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                    zoomLevel,
-                    style: const TextStyle(color: Colors.black45, fontWeight: FontWeight.bold, fontSize: 12)
-                ),
-                const SizedBox(width: 12),
-                Wrap(
-                  spacing: 0,
-                  children: [
-                    if (onAddImage != null)
-                      _buildIconBtn(Icons.photo_library_outlined,
-                          onTap: onAddImage!),
-                    if (onAddText != null)
-                      _buildIconBtn(Icons.text_fields_rounded,
-                          onTap: onAddText!),
-                    _buildIconBtn(Icons.download_rounded, onTap: onSave),
-                    _buildIconBtn(Icons.settings_outlined, onTap: onSettingsSelect),
+            // --- LEFT BAR: MENU & NAME ---
+            Flexible(
+              child: Container(
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(color: shadowColor, blurRadius: 8, offset: const Offset(0, 2)),
                   ],
                 ),
-              ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildIcon(Icons.grid_view_rounded, onTap: onBack),
+                    const VerticalDivider(width: 12, thickness: 1, indent: 10, endIndent: 10),
+                    Flexible(
+                      child: GestureDetector(
+                        onTap: onRename,
+                        child: Text(
+                          drawingName,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: -0.5),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildIcon(Icons.layers_outlined, onTap: onSettingsSelect, size: 20),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(width: 8),
+
+            // --- CENTER: ZOOM ---
+            Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.95),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(color: shadowColor, blurRadius: 8, offset: const Offset(0, 2)),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  zoomLevel,
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black45),
+                ),
+              ),
+            ),
+
+            const SizedBox(width: 8),
+
+            // --- RIGHT BAR: ACTIONS ---
+            Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.95),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(color: shadowColor, blurRadius: 8, offset: const Offset(0, 2)),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onAddImage != null)
+                    _buildIcon(Icons.add_photo_alternate_outlined, onTap: onAddImage!),
+                  _buildIcon(Icons.ios_share_rounded, onTap: onSave),
+                ],
+              ),
             ),
           ],
         ),
@@ -102,30 +114,13 @@ class DrawingToolbar extends StatelessWidget {
     );
   }
 
-  Widget _buildIconBtn(IconData icon, {required VoidCallback onTap}) {
+  Widget _buildIcon(IconData icon, {required VoidCallback onTap, double size = 22}) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.all(8.0),
-        child: Icon(icon, color: Colors.black87, size: 22),
-      ),
-    );
-  }
-
-  Widget _buildSquareBtn(IconData icon, {required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 6, offset: const Offset(0, 2))
-            ]
-        ),
-        child: Icon(icon, color: Colors.black87, size: 20),
+        child: Icon(icon, color: Colors.black87, size: size),
       ),
     );
   }

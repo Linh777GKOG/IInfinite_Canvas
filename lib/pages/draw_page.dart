@@ -20,7 +20,6 @@ import '../widgets/drawing_sidebar.dart';
 import '../widgets/drawing_layers_sidebar.dart';
 import 'gallery_page.dart';
 
-
 enum _TransformHandle { none, scale, rotate }
 
 class _SelectionHandles {
@@ -73,12 +72,14 @@ class _SelectionHandles {
       Offset(-halfW, halfH),
     ].map((p) => center + _rotateOffset(p, rotation)).toList();
 
-    final rotHandle = center + _rotateOffset(Offset(0, -halfH - rotateGap), rotation);
+    final rotHandle =
+        center + _rotateOffset(Offset(0, -halfH - rotateGap), rotation);
 
     for (final c in corners) {
       if ((scenePos - c).distance <= handleRadius) return _TransformHandle.scale;
     }
-    if ((scenePos - rotHandle).distance <= rotateRadius) return _TransformHandle.rotate;
+    if ((scenePos - rotHandle).distance <= rotateRadius)
+      return _TransformHandle.rotate;
     return _TransformHandle.none;
   }
 
@@ -88,8 +89,6 @@ class _SelectionHandles {
     return Offset(p.dx * c - p.dy * s, p.dx * s + p.dy * c);
   }
 }
-
-
 
 class DrawPage extends StatefulWidget {
   final String drawingId;
@@ -172,7 +171,9 @@ class _DrawPageState extends State<DrawPage> {
       final screenSize = MediaQuery.of(context).size;
       final x = (screenSize.width - canvasWidth) / 2;
       final y = (screenSize.height - canvasHeight) / 2;
-      controller.value = Matrix4.identity()..translate(x, y)..scale(1.0);
+      controller.value = Matrix4.identity()
+        ..translate(x, y)
+        ..scale(1.0);
       setState(() => currentScale = 1.0);
     });
 
@@ -302,7 +303,8 @@ class _DrawPageState extends State<DrawPage> {
       // Nếu đang ở chế độ chọn/ảnh/text -> ưu tiên chọn & kéo thả
       if (activeTool == ActiveTool.hand || activeTool == ActiveTool.text) {
         // Hand tool: ưu tiên handle transform nếu đang có selection
-        if (activeTool == ActiveTool.hand && (_selectedImageIndex != null || _selectedTextIndex != null)) {
+        if (activeTool == ActiveTool.hand &&
+            (_selectedImageIndex != null || _selectedTextIndex != null)) {
           final handles = _currentSelectionHandles();
           if (handles != null) {
             final handle = handles.hitTest(scenePos);
@@ -365,7 +367,9 @@ class _DrawPageState extends State<DrawPage> {
       if (layers[activeLayerIndex].isVisible) {
         startStroke(scenePos);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Không thể vẽ lên Layer đang ẩn!"), duration: Duration(milliseconds: 500)));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Không thể vẽ lên Layer đang ẩn!"),
+            duration: Duration(milliseconds: 500)));
       }
     }
   }
@@ -373,7 +377,9 @@ class _DrawPageState extends State<DrawPage> {
   void _onPointerMove(PointerMoveEvent event) {
     final scenePos = controller.toScene(event.localPosition);
 
-    if (_activeHandle != _TransformHandle.none && !_isMultitouching && _pointerCount == 1) {
+    if (_activeHandle != _TransformHandle.none &&
+        !_isMultitouching &&
+        _pointerCount == 1) {
       _updateHandleTransform(pointerScene: scenePos);
       return;
     }
@@ -383,7 +389,9 @@ class _DrawPageState extends State<DrawPage> {
       return;
     }
 
-    if (!_isMultitouching && _pointerCount == 1 && (activeTool == ActiveTool.brush || activeTool == ActiveTool.eraser)) {
+    if (!_isMultitouching &&
+        _pointerCount == 1 &&
+        (activeTool == ActiveTool.brush || activeTool == ActiveTool.eraser)) {
       addPoint(scenePos);
     }
   }
@@ -395,7 +403,8 @@ class _DrawPageState extends State<DrawPage> {
         _endHandleTransform();
       } else if (_isDraggingElement) {
         _endDrag();
-      } else if (activeTool == ActiveTool.brush || activeTool == ActiveTool.eraser) {
+      } else if (activeTool == ActiveTool.brush ||
+          activeTool == ActiveTool.eraser) {
         if (_maxPointerCount == 2 && !_hasZoomed) {
           undo();
           _showToast("Undo");
@@ -425,7 +434,8 @@ class _DrawPageState extends State<DrawPage> {
     });
   }
 
-  void _beginHandleTransform({required _TransformHandle handle, required Offset pointerScene}) {
+  void _beginHandleTransform(
+      {required _TransformHandle handle, required Offset pointerScene}) {
     final selectedImageIndex = _selectedImageIndex;
     final selectedTextIndex = _selectedTextIndex;
     if (selectedImageIndex == null && selectedTextIndex == null) return;
@@ -440,7 +450,8 @@ class _DrawPageState extends State<DrawPage> {
 
     if (handle == _TransformHandle.rotate) {
       final center = handles.center;
-      _transformStartAngle = math.atan2(pointerScene.dy - center.dy, pointerScene.dx - center.dx);
+      _transformStartAngle =
+          math.atan2(pointerScene.dy - center.dy, pointerScene.dx - center.dx);
       if (selectedImageIndex != null) {
         _transformRotationStart = images[selectedImageIndex].rotation;
       } else if (selectedTextIndex != null) {
@@ -474,7 +485,8 @@ class _DrawPageState extends State<DrawPage> {
       final startRotation = _transformRotationStart;
       if (startAngle == null || startRotation == null) return;
 
-      final currentAngle = math.atan2(pointerScene.dy - center.dy, pointerScene.dx - center.dx);
+      final currentAngle =
+          math.atan2(pointerScene.dy - center.dy, pointerScene.dx - center.dx);
       final delta = currentAngle - startAngle;
       final newRotation = startRotation + delta;
 
@@ -583,7 +595,8 @@ class _DrawPageState extends State<DrawPage> {
           fontWeight: t.fontWeight,
           fontFamily: t.fontFamily,
           fontStyle: t.italic ? FontStyle.italic : FontStyle.normal,
-          decoration: t.underline ? TextDecoration.underline : TextDecoration.none,
+          decoration:
+              t.underline ? TextDecoration.underline : TextDecoration.none,
         ),
       ),
       textAlign: t.align,
@@ -685,7 +698,8 @@ class _DrawPageState extends State<DrawPage> {
     if (picked == null) return;
 
     final size = MediaQuery.of(context).size;
-    final centerScene = controller.toScene(Offset(size.width / 2, size.height / 2));
+    final centerScene =
+        controller.toScene(Offset(size.width / 2, size.height / 2));
 
     final maxDim = (picked.image.width > picked.image.height)
         ? picked.image.width.toDouble()
@@ -711,7 +725,8 @@ class _DrawPageState extends State<DrawPage> {
     });
   }
 
-  Future<void> _promptAddOrEditText({Offset? position, int? existingIndex}) async {
+  Future<void> _promptAddOrEditText(
+      {Offset? position, int? existingIndex}) async {
     final isEdit = existingIndex != null;
 
     final initial = isEdit
@@ -842,8 +857,9 @@ class _DrawPageState extends State<DrawPage> {
                       IconButton(
                         tooltip: 'Bold',
                         onPressed: () => setLocal(() {
-                          fontWeight =
-                              fontWeight == FontWeight.w700 ? FontWeight.w600 : FontWeight.w700;
+                          fontWeight = fontWeight == FontWeight.w700
+                              ? FontWeight.w600
+                              : FontWeight.w700;
                         }),
                         icon: Icon(
                           Icons.format_bold,
@@ -889,7 +905,8 @@ class _DrawPageState extends State<DrawPage> {
                       ),
                       IconButton(
                         tooltip: 'Center',
-                        onPressed: () => setLocal(() => align = TextAlign.center),
+                        onPressed: () =>
+                            setLocal(() => align = TextAlign.center),
                         icon: Icon(
                           Icons.format_align_center,
                           color: align == TextAlign.center
@@ -899,7 +916,8 @@ class _DrawPageState extends State<DrawPage> {
                       ),
                       IconButton(
                         tooltip: 'Right',
-                        onPressed: () => setLocal(() => align = TextAlign.right),
+                        onPressed: () =>
+                            setLocal(() => align = TextAlign.right),
                         icon: Icon(
                           Icons.format_align_right,
                           color: align == TextAlign.right
@@ -970,7 +988,8 @@ class _DrawPageState extends State<DrawPage> {
                         const Text('BG'),
                         const SizedBox(width: 8),
                         GestureDetector(
-                          onTap: () => setLocal(() => bgColor = Colors.black.withOpacity(0.08)),
+                          onTap: () => setLocal(() =>
+                              bgColor = Colors.black.withOpacity(0.08)),
                           child: Container(
                             width: 24,
                             height: 24,
@@ -1037,7 +1056,9 @@ class _DrawPageState extends State<DrawPage> {
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Hủy')),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
                 child: Text(isEdit ? 'Cập nhật' : 'Thêm'),
@@ -1168,21 +1189,29 @@ class _DrawPageState extends State<DrawPage> {
 
   void _showToast(String msg) {
     ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(milliseconds: 300)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(msg), duration: const Duration(milliseconds: 300)));
   }
 
   void startStroke(Offset p) {
     if (_isMultitouching || _pointerCount > 1) return;
     currentPoints = [p];
-    setState(() => currentStroke = Stroke(currentPoints, currentColor.withOpacity(currentOpacity), currentWidth, isEraser: activeTool == ActiveTool.eraser));
+    setState(() => currentStroke = Stroke(
+        currentPoints, currentColor.withOpacity(currentOpacity), currentWidth,
+        isEraser: activeTool == ActiveTool.eraser));
     redoStack.clear();
   }
 
   void addPoint(Offset p) {
     if (_isMultitouching || currentStroke == null) return;
-    if ((p - currentPoints.last).distance < 3.0) return;
-    setState(() => currentPoints.add(p));
-    currentStroke = Stroke(currentPoints, currentStroke!.color, currentStroke!.width, isEraser: currentStroke!.isEraser);
+    // Tối ưu 3: Lọc bớt điểm thừa nếu quá gần nhau
+    if ((p - currentPoints.last).distance < 2.0 / currentScale) return;
+    
+    setState(() {
+      currentPoints.add(p);
+      currentStroke = Stroke(currentPoints, currentStroke!.color,
+          currentStroke!.width, isEraser: currentStroke!.isEraser);
+    });
   }
 
   void endStroke() {
@@ -1209,17 +1238,20 @@ class _DrawPageState extends State<DrawPage> {
     }
   }
 
-  void toggleTool() => setState(() => activeTool = (activeTool == ActiveTool.brush) ? ActiveTool.eraser : ActiveTool.brush);
+  void toggleTool() => setState(() => activeTool =
+      (activeTool == ActiveTool.brush) ? ActiveTool.eraser : ActiveTool.brush);
 
   // --- HỘP THOẠI ĐỔI TÊN ---
   void _showRenameDialog() {
-    TextEditingController nameController = TextEditingController(text: currentName);
+    TextEditingController nameController =
+        TextEditingController(text: currentName);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("Rename Drawing", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        title: const Text("Rename Drawing",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         content: TextField(
           controller: nameController,
           autofocus: true,
@@ -1236,7 +1268,9 @@ class _DrawPageState extends State<DrawPage> {
           },
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
           TextButton(
             onPressed: () {
               if (nameController.text.trim().isNotEmpty) {
@@ -1244,7 +1278,8 @@ class _DrawPageState extends State<DrawPage> {
                 Navigator.pop(context);
               }
             },
-            child: const Text("Rename", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            child: const Text("Rename",
+                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -1258,13 +1293,32 @@ class _DrawPageState extends State<DrawPage> {
 
   // --- CÁC HÀM KHÁC ---
   void _openSettings() {
-    DrawingSettingsModal.show(context, currentGridType: currentGridType, onGridTypeChanged: (type) => setState(() => currentGridType = type), onPickBgColor: _showBackgroundColorPicker);
+    DrawingSettingsModal.show(context,
+        currentGridType: currentGridType,
+        onGridTypeChanged: (type) => setState(() => currentGridType = type),
+        onPickBgColor: _showBackgroundColorPicker);
   }
+
   void _showBackgroundColorPicker() {
-    showDialog(context: context, barrierColor: Colors.transparent, builder: (ctx) => ProcreateColorPicker(currentColor: canvasColor, onColorChanged: (c) => setState(() => canvasColor = c)));
+    showDialog(
+        context: context,
+        barrierColor: Colors.transparent,
+        builder: (ctx) => ProcreateColorPicker(
+            currentColor: canvasColor,
+            onColorChanged: (c) => setState(() => canvasColor = c)));
   }
+
   void _showColorPicker() {
-    showDialog(context: context, barrierColor: Colors.transparent, builder: (ctx) => ProcreateColorPicker(currentColor: currentColor, onColorChanged: (c) => setState(() { currentColor = c; if(activeTool==ActiveTool.eraser) activeTool=ActiveTool.brush; })));
+    showDialog(
+        context: context,
+        barrierColor: Colors.transparent,
+        builder: (ctx) => ProcreateColorPicker(
+            currentColor: currentColor,
+            onColorChanged: (c) => setState(() {
+                  currentColor = c;
+                  if (activeTool == ActiveTool.eraser)
+                    activeTool = ActiveTool.brush;
+                })));
   }
 
   Future<void> _handleExport() async {
@@ -1319,7 +1373,6 @@ class _DrawPageState extends State<DrawPage> {
         thumbnailPngBytes: pngBytes,
         name: currentName,
       );
-
     } catch (e) {
       debugPrint("Lỗi lưu: $e");
     } finally {
@@ -1388,7 +1441,10 @@ class _DrawPageState extends State<DrawPage> {
       if (bottom > maxY) maxY = bottom;
     }
 
-    minX -= 50; minY -= 50; maxX += 50; maxY += 50;
+    minX -= 50;
+    minY -= 50;
+    maxX += 50;
+    maxY += 50;
     double w = maxX - minX;
     double h = maxY - minY;
     if (w <= 0 || h <= 0) return Uint8List(0);
@@ -1424,7 +1480,8 @@ class _DrawPageState extends State<DrawPage> {
     if (Navigator.canPop(context)) {
       Navigator.pop(context);
     } else {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const GalleryPage()));
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (context) => const GalleryPage()));
     }
   }
 
@@ -1451,23 +1508,71 @@ class _DrawPageState extends State<DrawPage> {
                 child: InteractiveViewer(
                   transformationController: controller,
                   boundaryMargin: const EdgeInsets.all(double.infinity),
-                  minScale: 0.1, maxScale: 5.0, constrained: false,
-                  panEnabled: false, scaleEnabled: true,
+                  minScale: 0.1,
+                  maxScale: 5.0,
+                  constrained: false,
+                  panEnabled: false,
+                  scaleEnabled: true,
                   onInteractionUpdate: (details) {
                     if (details.scale != 1.0) _hasZoomed = true;
                   },
                   onInteractionStart: (d) {
-                    if (d.pointerCount > 1) setState(() { _isMultitouching = true; currentStroke = null; });
+                    if (d.pointerCount > 1)
+                      setState(() {
+                        _isMultitouching = true;
+                        currentStroke = null;
+                      });
                   },
                   child: SizedBox(
-                    width: canvasWidth, height: canvasHeight,
+                    width: canvasWidth,
+                    height: canvasHeight,
                     child: RepaintBoundary(
                       key: _globalKey,
                       child: Stack(
                         children: [
-                          Positioned.fill(child: Stack(children: [Container(key: ValueKey(canvasColor), color: canvasColor), RepaintBoundary(child: AnimatedBuilder(animation: controller, builder: (c, _) => CustomPaint(painter: GridPainter(gridSize: gridSize, gridColor: gridColor, controller: controller, gridType: currentGridType))))])),
-                          Positioned.fill(child: RepaintBoundary(child: CustomPaint(isComplex: false, foregroundPainter: DrawPainter(_visibleStrokes, images, texts: texts)))),
-                          Positioned.fill(child: CustomPaint(foregroundPainter: DrawPainter(currentStroke == null ? [] : [currentStroke!], [], texts: const [], canvasColor: canvasColor, isPreview: true))),
+                          // Tối ưu 1: Tách biệt nền và lưới vào RepaintBoundary riêng
+                          RepaintBoundary(
+                            child: Stack(
+                              children: [
+                                Container(
+                                    key: ValueKey(canvasColor),
+                                    color: canvasColor),
+                                AnimatedBuilder(
+                                  animation: controller,
+                                  builder: (c, _) => CustomPaint(
+                                    painter: GridPainter(
+                                        gridSize: gridSize,
+                                        gridColor: gridColor,
+                                        gridType: currentGridType),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Tối ưu 2: Phần các nét vẽ đã hoàn thành (isComplex: true giúp cache đồ họa)
+                          RepaintBoundary(
+                            child: CustomPaint(
+                              isComplex: true,
+                              willChange: false,
+                              foregroundPainter: DrawPainter(_visibleStrokes,
+                                  images,
+                                  texts: texts),
+                            ),
+                          ),
+
+                          // Phần nét đang vẽ dở (RepaintBoundary giúp chỉ vẽ lại đúng phần này khi di chuyển ngón tay)
+                          RepaintBoundary(
+                            child: CustomPaint(
+                              foregroundPainter: DrawPainter(
+                                  currentStroke == null ? [] : [currentStroke!],
+                                  [],
+                                  texts: const [],
+                                  canvasColor: canvasColor,
+                                  isPreview: true),
+                            ),
+                          ),
+
                           Positioned.fill(
                             child: IgnorePointer(
                               child: CustomPaint(
@@ -1493,7 +1598,9 @@ class _DrawPageState extends State<DrawPage> {
 
             // 2. TOP BAR
             Positioned(
-              top: 0, left: 0, right: 0,
+              top: 0,
+              left: 0,
+              right: 0,
               child: DrawingToolbar(
                 onBack: _handleBack,
                 onSave: _handleExport,
@@ -1508,7 +1615,9 @@ class _DrawPageState extends State<DrawPage> {
 
             // 3. LEFT SIDEBAR
             Positioned(
-              left: 4, top: 100, bottom: 80,
+              left: 4,
+              top: 100,
+              bottom: 80,
               child: Center(
                 child: DrawingSidebar(
                   currentWidth: currentWidth,
@@ -1542,10 +1651,10 @@ class _DrawPageState extends State<DrawPage> {
               ),
             ),
 
-
             // 4. RIGHT SIDEBAR (LAYERS)
             Positioned(
-              right: 0, top: 60,
+              right: 0,
+              top: 60,
               child: DrawingLayersSidebar(
                 layers: layers,
                 activeLayerIndex: activeLayerIndex,
@@ -1560,10 +1669,11 @@ class _DrawPageState extends State<DrawPage> {
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 18,
+                bottom: 30, // Tăng khoảng cách để nút bấm dễ thao tác hơn
                 child: Center(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(14),
@@ -1578,11 +1688,19 @@ class _DrawPageState extends State<DrawPage> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.delete_outline_rounded),
-                          onPressed: _deleteSelectedElement,
+                        // Nút Xóa (Sử dụng InkWell để tăng vùng nhận diện chạm)
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: _deleteSelectedElement,
+                            borderRadius: BorderRadius.circular(20),
+                            child: const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                            ),
+                          ),
                         ),
+                        const VerticalDivider(width: 16, thickness: 1, indent: 8, endIndent: 8),
                         IconButton(
                           visualDensity: VisualDensity.compact,
                           icon: const Icon(Icons.layers_outlined),
@@ -1621,7 +1739,8 @@ class _DrawPageState extends State<DrawPage> {
                           IconButton(
                             visualDensity: VisualDensity.compact,
                             icon: const Icon(Icons.edit_outlined),
-                            onPressed: () => _promptAddOrEditText(existingIndex: _selectedTextIndex),
+                            onPressed: () => _promptAddOrEditText(
+                                existingIndex: _selectedTextIndex),
                           ),
                       ],
                     ),
@@ -1630,7 +1749,10 @@ class _DrawPageState extends State<DrawPage> {
               ),
 
             if (isSaving || isInitialLoading)
-              Container(color: Colors.black26, child: const Center(child: CircularProgressIndicator(color: Colors.black))),
+              Container(
+                  color: Colors.black26,
+                  child: const Center(
+                      child: CircularProgressIndicator(color: Colors.black))),
           ],
         ),
       ),

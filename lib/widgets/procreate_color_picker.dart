@@ -164,7 +164,7 @@ class _ProcreateColorPickerState extends State<ProcreateColorPicker> {
                   
                   // Circle Palette (Concepts Style)
                   SizedBox(
-                    height: 120,
+                    height: 170, // FIX: Tăng chiều cao để vừa đủ cho 4 hàng màu
                     child: GridView.builder(
                       physics: const BouncingScrollPhysics(),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
